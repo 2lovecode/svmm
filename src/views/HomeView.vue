@@ -4,9 +4,11 @@ import TopBar from "../components/TopBar.vue";
 import ModTable from "../components/ModTable.vue";
 import StatusBar from "../components/StatusBar.vue";
 import { useModsStore } from "../stores/mods";
+import { useProfilesStore } from "../stores/profiles";
 import type { ModEntry } from "../types/mod";
 
 const mods = useModsStore();
+const profiles = useProfilesStore();
 
 onMounted(async () => {
   try {
@@ -27,7 +29,14 @@ async function onToggle(mod: ModEntry, enabled: boolean) {
 
 <template>
   <div class="page home-page">
-    <TopBar :busy="mods.loading || mods.launching || !!mods.togglingPath" />
+    <TopBar
+      :busy="
+        mods.loading ||
+        mods.launching ||
+        !!mods.togglingPath ||
+        profiles.applying
+      "
+    />
     <main class="page-body">
       <ModTable
         :mods="mods.mods"

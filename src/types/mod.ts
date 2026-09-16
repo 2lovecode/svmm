@@ -35,6 +35,20 @@ export interface GamePaths {
   modsPath: string;
 }
 
+export interface Profile {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  enabledModIds: string[];
+}
+
+export interface ApplyReport {
+  enabled: number;
+  disabled: number;
+  errors: string[];
+}
+
 export interface AppError {
   code: string;
   message: string;

@@ -419,3 +419,125 @@ body {
 .feedback.err {
   color: var(--danger);
 }
+
+.profile-select-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.profile-select {
+  min-width: 140px;
+  max-width: 200px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.4em 0.6em;
+  font: inherit;
+  background: #fffdf8;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.profile-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.profile-select:focus {
+  outline: 2px solid rgba(74, 107, 58, 0.35);
+  border-color: var(--moss);
+}
+
+.btn-danger {
+  background: #fff8f6;
+  border-color: #d4a59c;
+  color: var(--danger);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #f0d9d4;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.profiles-body {
+  max-width: 860px;
+}
+
+.profiles-section {
+  margin-bottom: 22px;
+}
+
+.profiles-section h2 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+  color: var(--soil);
+}
+
+.field-note {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.profiles-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255, 253, 248, 0.88);
+  overflow: hidden;
+}
+
+.profiles-list.empty-list li {
+  padding: 16px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.profile-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.profile-row:last-child {
+  border-bottom: none;
+}
+
+.profile-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.profile-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.rename-input {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.4em 0.6em;
+  font: inherit;
+  background: #fffdf8;
+  min-width: 160px;
+  max-width: 100%;
+}
