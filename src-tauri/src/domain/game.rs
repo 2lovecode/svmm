@@ -29,18 +29,13 @@ impl GamePaths {
 fn candidate_game_dirs() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
+    // Order locked by brief: Steam (x86) → Steam ProgramFiles → Xbox → GOG
     if let Ok(pf86) = env::var("ProgramFiles(x86)") {
         candidates.push(
             PathBuf::from(&pf86)
                 .join("Steam")
                 .join("steamapps")
                 .join("common")
-                .join("Stardew Valley"),
-        );
-        candidates.push(
-            PathBuf::from(&pf86)
-                .join("GOG Galaxy")
-                .join("Games")
                 .join("Stardew Valley"),
         );
     }
@@ -61,6 +56,15 @@ fn candidate_game_dirs() -> Vec<PathBuf> {
                 .join("XboxGames")
                 .join("Stardew Valley")
                 .join("Content"),
+        );
+    }
+
+    if let Ok(pf86) = env::var("ProgramFiles(x86)") {
+        candidates.push(
+            PathBuf::from(pf86)
+                .join("GOG Galaxy")
+                .join("Games")
+                .join("Stardew Valley"),
         );
     }
 
@@ -205,5 +209,30 @@ mod tests {
         assert_eq!(paths.smapi_path, root.join("StardewModdingAPI.exe"));
         assert_eq!(paths.mods_path, root.join("Mods"));
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn candidate_order_is_steam_x86_steam_pf_xbox_gog() {
+        let dirs = candidate_game_dirs();
+        let labels: Vec<&str> = dirs
+            .iter()
+            .map(|p| {
+                let s = p.to_string_lossy();
+                if s.contains("XboxGames") {
+                    "xbox"
+                } else if s.contains("GOG Galaxy") {
+                    "gog"
+                } else if s.contains("Steam") {
+                    if s.contains("Program Files (x86)") {
+                        "steam_x86"
+                    } else {
+                        "steam_pf"
+                    }
+                } else {
+                    "other"
+                }
+            })
+            .collect();
+        assert_eq!(labels, vec!["steam_x86", "steam_pf", "xbox", "gog"]);
     }
 }

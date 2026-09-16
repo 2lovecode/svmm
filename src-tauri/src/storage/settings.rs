@@ -9,12 +9,17 @@ use crate::storage::paths::app_data_dir;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
+    #[serde(alias = "game_path")]
     pub game_path: Option<PathBuf>,
+    #[serde(alias = "smapi_path")]
     pub smapi_path: Option<PathBuf>,
+    #[serde(alias = "mods_path")]
     pub mods_path: Option<PathBuf>,
+    #[serde(alias = "last_profile_id")]
     pub last_profile_id: Option<String>,
     pub theme: String,
     pub language: String,
+    #[serde(alias = "check_updates_on_startup")]
     pub check_updates_on_startup: bool,
 }
 
@@ -94,6 +99,42 @@ mod tests {
         let loaded = load_settings_from(&path).unwrap();
         assert_eq!(loaded.game_path, s.game_path);
         assert_eq!(loaded.language, "zh-CN");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn settings_loads_legacy_snake_case_keys() {
+        let dir = std::env::temp_dir().join(format!(
+            "svmm-test-snake-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        fs::write(
+            &path,
+            r#"{
+  "game_path": "C:\\Games\\Stardew Valley",
+  "smapi_path": null,
+  "mods_path": null,
+  "last_profile_id": "default",
+  "theme": "system",
+  "language": "zh-CN",
+  "check_updates_on_startup": false
+}"#,
+        )
+        .unwrap();
+        let loaded = load_settings_from(&path).unwrap();
+        assert_eq!(
+            loaded.game_path.as_deref(),
+            Some(std::path::Path::new(r"C:\Games\Stardew Valley"))
+        );
+        assert_eq!(loaded.last_profile_id.as_deref(), Some("default"));
+        assert!(!loaded.check_updates_on_startup);
         let _ = fs::remove_dir_all(&dir);
     }
 }
