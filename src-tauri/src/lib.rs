@@ -5,6 +5,7 @@ mod storage;
 
 use commands::game::{discover_paths, get_settings, save_settings, validate_paths};
 use commands::mods::{scan_mods, set_mod_enabled};
+use commands::smapi::launch_smapi;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -23,7 +24,8 @@ pub fn run() {
             discover_paths,
             validate_paths,
             scan_mods,
-            set_mod_enabled
+            set_mod_enabled,
+            launch_smapi
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
