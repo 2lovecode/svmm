@@ -12,9 +12,9 @@
   "app": {
     "windows": [
       {
-        "title": "SVMM",
-        "width": 800,
-        "height": 600
+        "title": "SVMM — 星露谷模组管理",
+        "width": 960,
+        "height": 640
       }
     ],
     "security": {
