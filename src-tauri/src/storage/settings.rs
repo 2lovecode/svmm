@@ -7,6 +7,7 @@ use crate::error::{AppError, AppResult};
 use crate::storage::paths::app_data_dir;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub game_path: Option<PathBuf>,
     pub smapi_path: Option<PathBuf>,
