@@ -218,11 +218,21 @@ mod tests {
                 "suggestedUpdate": null,
                 "errors": ["incompatible"],
                 "metadata": {}
+            },
+            "Ok.Mod": {
+                "suggestedUpdate": null,
+                "errors": [],
+                "metadata": {}
+            },
+            "Unofficial.Mod": {
+                "suggestedUpdate": { "version": "3.1.0" },
+                "errors": [],
+                "metadata": { "main": { "status": "unofficial" } }
             }
         });
         let map: HashMap<String, Value> = serde_json::from_value(raw).unwrap();
         let infos = parse_update_fixture(&map);
-        assert_eq!(infos.len(), 2);
+        assert_eq!(infos.len(), 4);
 
         let ada = infos.iter().find(|i| i.id == "Ada.TestMod").unwrap();
         assert_eq!(ada.status, "update_available");
@@ -233,6 +243,16 @@ mod tests {
         assert_eq!(broken.status, "broken");
         assert_eq!(broken.error_reason.as_deref(), Some("incompatible"));
         assert!(broken.suggested_version.is_none());
+
+        let ok = infos.iter().find(|i| i.id == "Ok.Mod").unwrap();
+        assert_eq!(ok.status, "ok");
+        assert!(ok.suggested_version.is_none());
+        assert!(ok.error_reason.is_none());
+
+        let unofficial = infos.iter().find(|i| i.id == "Unofficial.Mod").unwrap();
+        assert_eq!(unofficial.status, "unofficial_update");
+        assert_eq!(unofficial.suggested_version.as_deref(), Some("3.1.0"));
+        assert!(unofficial.error_reason.is_none());
     }
 
     #[test]
