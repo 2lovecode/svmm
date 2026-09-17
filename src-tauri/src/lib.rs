@@ -7,7 +7,9 @@ use commands::game::{discover_paths, get_settings, save_settings, validate_paths
 use commands::mods::{
     install_from_nxm, install_mod_zip, scan_mods, set_mod_enabled,
 };
-use commands::nexus::{nexus_clear_key, nexus_set_key, nexus_status, nexus_validate};
+use commands::nexus::{
+    nexus_clear_key, nexus_endorse, nexus_set_key, nexus_status, nexus_update_mod, nexus_validate,
+};
 use commands::profiles::{
     apply_profile, create_profile, delete_profile, list_profiles, rename_profile,
     snapshot_current_as_profile,
@@ -113,7 +115,9 @@ pub fn run() {
             nexus_set_key,
             nexus_clear_key,
             nexus_status,
-            nexus_validate
+            nexus_validate,
+            nexus_endorse,
+            nexus_update_mod
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

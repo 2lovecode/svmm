@@ -220,6 +220,21 @@ body {
   width: 140px;
 }
 
+.col-actions {
+  width: 148px;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.btn-sm {
+  padding: 0.2em 0.55em;
+  font-size: 0.78rem;
+}
+
 .mod-name {
   font-weight: 600;
 }

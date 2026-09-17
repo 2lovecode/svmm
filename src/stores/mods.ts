@@ -156,12 +156,68 @@ export const useModsStore = defineStore("mods", () => {
     }
   }
 
+  function nexusModId(mod: ModEntry): number | null {
+    for (const key of mod.updateKeys) {
+      const m = key.trim().match(/^nexus:\s*(\d+)$/i);
+      if (m) return Number(m[1]);
+    }
+    return null;
+  }
+
+  const actionPath = ref<string | null>(null);
+
+  async function endorse(mod: ModEntry) {
+    const id = nexusModId(mod);
+    if (id == null) {
+      error.value = "该模组没有 Nexus 更新键";
+      return;
+    }
+    actionPath.value = mod.folderPath;
+    error.value = null;
+    statusMessage.value = `正在推荐 ${mod.name}…`;
+    try {
+      await api.nexusEndorse(id, mod.version || null);
+      statusMessage.value = `已推荐：${mod.name}`;
+    } catch (e) {
+      const msg = formatAppError(e);
+      error.value = msg;
+      statusMessage.value = "推荐失败";
+      throw e;
+    } finally {
+      actionPath.value = null;
+    }
+  }
+
+  async function updateFromNexus(mod: ModEntry) {
+    if (nexusModId(mod) == null) {
+      error.value = "该模组没有 Nexus 更新键";
+      return;
+    }
+    actionPath.value = mod.folderPath;
+    error.value = null;
+    statusMessage.value = `正在从 Nexus 更新 ${mod.name}…`;
+    try {
+      const entry = await api.nexusUpdateMod(mod.folderPath);
+      await refresh();
+      statusMessage.value = `已更新：${entry.name}`;
+      return entry;
+    } catch (e) {
+      const msg = formatAppError(e);
+      error.value = msg;
+      statusMessage.value = "更新失败";
+      throw e;
+    } finally {
+      actionPath.value = null;
+    }
+  }
+
   return {
     mods,
     loading,
     checkingUpdates,
     launching,
     togglingPath,
+    actionPath,
     error,
     statusMessage,
     enabledCount,
@@ -172,5 +228,7 @@ export const useModsStore = defineStore("mods", () => {
     launch,
     installZip,
     installNxm,
+    endorse,
+    updateFromNexus,
   };
 });

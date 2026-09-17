@@ -84,6 +84,20 @@ export function nexusValidate(): Promise<NexusUser> {
   return invoke<NexusUser>("nexus_validate");
 }
 
+export function nexusEndorse(
+  modId: number,
+  version?: string | null,
+): Promise<void> {
+  return invoke<void>("nexus_endorse", {
+    modId,
+    version: version ?? null,
+  });
+}
+
+export function nexusUpdateMod(folderPath: string): Promise<ModEntry> {
+  return invoke<ModEntry>("nexus_update_mod", { folderPath });
+}
+
 export function installModZip(path: string): Promise<ModEntry> {
   return invoke<ModEntry>("install_mod_zip", { path });
 }

@@ -77,6 +77,22 @@ async function onToggle(mod: ModEntry, enabled: boolean) {
   }
 }
 
+async function onEndorse(mod: ModEntry) {
+  try {
+    await mods.endorse(mod);
+  } catch {
+    /* shown in status bar */
+  }
+}
+
+async function onUpdate(mod: ModEntry) {
+  try {
+    await mods.updateFromNexus(mod);
+  } catch {
+    /* shown in status bar */
+  }
+}
+
 function onDragOver(e: DragEvent) {
   e.preventDefault();
   dragOver.value = true;
@@ -128,6 +144,7 @@ async function onDrop(e: DragEvent) {
         mods.checkingUpdates ||
         mods.launching ||
         !!mods.togglingPath ||
+        !!mods.actionPath ||
         profiles.applying
       "
     />
@@ -137,7 +154,10 @@ async function onDrop(e: DragEvent) {
         :mods="mods.mods"
         :loading="mods.loading"
         :toggling-path="mods.togglingPath"
+        :action-path="mods.actionPath"
         @toggle="onToggle"
+        @endorse="onEndorse"
+        @update="onUpdate"
       />
     </main>
     <StatusBar
