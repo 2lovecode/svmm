@@ -7,10 +7,30 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# Dependencies & frontend build
+node_modules/
+dist/
+dist-ssr/
 *.local
+
+# Rust / Tauri build outputs
+target/
+**/target/
+**/target-msvc/
+src-tauri/gen/schemas/
+
+# Bundled installers (local builds)
+*.msi
+*.nsis.zip
+*.exe
+!src-tauri/icons/**
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+*.pem
+credentials.json
 
 # Editor directories and files
 .vscode/*
@@ -23,6 +43,11 @@ dist-ssr
 *.sln
 *.sw?
 
+# Local agent / worktree scratch
 .worktrees/
 .superpowers/
+.cursor/
 
+# OS
+Thumbs.db
+Desktop.ini
