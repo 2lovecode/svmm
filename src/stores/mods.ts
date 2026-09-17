@@ -118,6 +118,44 @@ export const useModsStore = defineStore("mods", () => {
     }
   }
 
+  async function installZip(path: string) {
+    loading.value = true;
+    error.value = null;
+    statusMessage.value = "正在安装压缩包…";
+    try {
+      const entry = await api.installModZip(path);
+      await refresh();
+      statusMessage.value = `已安装：${entry.name}`;
+      return entry;
+    } catch (e) {
+      const msg = formatAppError(e);
+      error.value = msg;
+      statusMessage.value = "安装失败";
+      throw e;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  async function installNxm(url: string) {
+    loading.value = true;
+    error.value = null;
+    statusMessage.value = "正在通过 NXM 下载安装…";
+    try {
+      const entry = await api.installFromNxm(url);
+      await refresh();
+      statusMessage.value = `已通过 NXM 安装：${entry.name}`;
+      return entry;
+    } catch (e) {
+      const msg = formatAppError(e);
+      error.value = msg;
+      statusMessage.value = "NXM 安装失败";
+      throw e;
+    } finally {
+      loading.value = false;
+    }
+  }
+
   return {
     mods,
     loading,
@@ -132,5 +170,7 @@ export const useModsStore = defineStore("mods", () => {
     checkUpdates,
     toggle,
     launch,
+    installZip,
+    installNxm,
   };
 });

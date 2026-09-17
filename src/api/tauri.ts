@@ -83,3 +83,11 @@ export function nexusStatus(): Promise<NexusStatus> {
 export function nexusValidate(): Promise<NexusUser> {
   return invoke<NexusUser>("nexus_validate");
 }
+
+export function installModZip(path: string): Promise<ModEntry> {
+  return invoke<ModEntry>("install_mod_zip", { path });
+}
+
+export function installFromNxm(url: string): Promise<ModEntry> {
+  return invoke<ModEntry>("install_from_nxm", { url });
+}
