@@ -40,8 +40,7 @@ pub fn nexus_endorse(mod_id: u32, version: Option<String>) -> AppResult<()> {
     log_result(nexus::endorse_mod(mod_id, version.as_deref()))
 }
 
-#[tauri::command]
-pub fn nexus_update_mod(folder_path: String) -> AppResult<scan::ModEntry> {
+fn nexus_update_mod_blocking(folder_path: String) -> AppResult<scan::ModEntry> {
     log_result((|| {
         let settings = settings::load_settings()?;
         let paths = game::resolve_paths(&settings)?;
@@ -54,4 +53,11 @@ pub fn nexus_update_mod(folder_path: String) -> AppResult<scan::ModEntry> {
             })?;
         nexus::update_mod_from_nexus(&entry, &paths.mods_path)
     })())
+}
+
+#[tauri::command]
+pub async fn nexus_update_mod(folder_path: String) -> AppResult<scan::ModEntry> {
+    tauri::async_runtime::spawn_blocking(move || nexus_update_mod_blocking(folder_path))
+        .await
+        .map_err(|_| AppError::new("task_join_failed", "后台任务失败"))?
 }

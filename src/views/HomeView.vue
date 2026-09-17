@@ -15,6 +15,7 @@ const settings = useSettingsStore();
 
 const dragOver = ref(false);
 let unlistenNxm: UnlistenFn | null = null;
+let unlistenNxmStarted: UnlistenFn | null = null;
 
 onMounted(async () => {
   try {
@@ -36,12 +37,23 @@ onMounted(async () => {
   }
 
   try {
+    const unlistenStarted = await listen<{ message?: string }>(
+      "nxm-install-started",
+      (event) => {
+        mods.error = null;
+        mods.loading = true;
+        mods.statusMessage = event.payload.message ?? "正在通过 NXM 安装…";
+      },
+    );
+    unlistenNxmStarted = unlistenStarted;
+
     unlistenNxm = await listen<{
       ok: boolean;
       message?: string;
       detail?: string | null;
       mod?: ModEntry;
     }>("nxm-install-result", async (event) => {
+      mods.loading = false;
       const payload = event.payload;
       if (payload.ok) {
         mods.error = null;
@@ -66,6 +78,10 @@ onUnmounted(() => {
   if (unlistenNxm) {
     unlistenNxm();
     unlistenNxm = null;
+  }
+  if (unlistenNxmStarted) {
+    unlistenNxmStarted();
+    unlistenNxmStarted = null;
   }
 });
 

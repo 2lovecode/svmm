@@ -288,17 +288,47 @@ fn encode_query(s: &str) -> String {
     out
 }
 
+/// Soft cap for a single Nexus zip download (512 MiB).
+pub const MAX_DOWNLOAD_BYTES: u64 = 512 * 1024 * 1024;
+
+fn assert_https_download_url(cdn_url: &str) -> AppResult<()> {
+    let trimmed = cdn_url.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if !lower.starts_with("https://") {
+        return Err(AppError::new(
+            "nexus_download_unsafe_url",
+            "仅允许通过 HTTPS 下载模组文件",
+        ));
+    }
+    Ok(())
+}
+
+/// Stream a CDN zip to a temp file (never buffers the whole archive in RAM).
 pub fn download_url_to_temp_zip(cdn_url: &str) -> AppResult<PathBuf> {
+    use std::io::Read;
+
+    assert_https_download_url(cdn_url)?;
+
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .map_err(|_| AppError::new("nexus_client_failed", "无法创建下载客户端"))?;
 
-    let response = client
+    let mut response = client
         .get(cdn_url)
         .send()
         .map_err(|_| AppError::new("nexus_download_failed", "下载模组文件失败"))?;
+
+    // After redirects, confirm final URL is still HTTPS (do not leak query in errors).
+    if let Some(final_url) = response.url().as_str().split('?').next() {
+        if !final_url.to_ascii_lowercase().starts_with("https://") {
+            return Err(AppError::new(
+                "nexus_download_unsafe_url",
+                "下载重定向到了非 HTTPS 地址",
+            ));
+        }
+    }
 
     if !response.status().is_success() {
         return Err(AppError::new(
@@ -307,17 +337,44 @@ pub fn download_url_to_temp_zip(cdn_url: &str) -> AppResult<PathBuf> {
         ));
     }
 
-    let bytes = response
-        .bytes()
-        .map_err(|_| AppError::new("nexus_download_failed", "读取下载内容失败"))?;
+    if let Some(len) = response.content_length() {
+        if len > MAX_DOWNLOAD_BYTES {
+            return Err(AppError::new(
+                "nexus_download_too_large",
+                "模组文件过大，已取消下载",
+            ));
+        }
+    }
 
     let path = std::env::temp_dir().join(format!("svmm-nxm-{}.zip", uuid::Uuid::new_v4()));
     let mut file = File::create(&path).map_err(|e| {
         AppError::new("nexus_download_failed", "无法写入临时文件").with_detail(e.to_string())
     })?;
-    file.write_all(&bytes).map_err(|e| {
-        AppError::new("nexus_download_failed", "无法写入临时文件").with_detail(e.to_string())
-    })?;
+
+    let mut buf = [0u8; 64 * 1024];
+    let mut written: u64 = 0;
+    loop {
+        let n = response.read(&mut buf).map_err(|_| {
+            let _ = fs::remove_file(&path);
+            AppError::new("nexus_download_failed", "读取下载内容失败")
+        })?;
+        if n == 0 {
+            break;
+        }
+        written = written.saturating_add(n as u64);
+        if written > MAX_DOWNLOAD_BYTES {
+            let _ = fs::remove_file(&path);
+            return Err(AppError::new(
+                "nexus_download_too_large",
+                "模组文件过大，已取消下载",
+            ));
+        }
+        file.write_all(&buf[..n]).map_err(|e| {
+            let _ = fs::remove_file(&path);
+            AppError::new("nexus_download_failed", "无法写入临时文件").with_detail(e.to_string())
+        })?;
+    }
+
     Ok(path)
 }
 
@@ -631,5 +688,11 @@ mod tests {
         assert!(!disabled.enabled);
         assert!(mods.join(".Fresh.Mod").is_dir());
         let _ = fs::remove_dir_all(&mods);
+    }
+
+    #[test]
+    fn download_rejects_non_https_url() {
+        let err = download_url_to_temp_zip("http://example.com/mod.zip").unwrap_err();
+        assert_eq!(err.code, "nexus_download_unsafe_url");
     }
 }

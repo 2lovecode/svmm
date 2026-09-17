@@ -5,7 +5,7 @@ mod storage;
 
 use commands::game::{discover_paths, get_settings, save_settings, validate_paths};
 use commands::mods::{
-    install_from_nxm, install_mod_zip, scan_mods, set_mod_enabled,
+    install_from_nxm, install_from_nxm_blocking, install_mod_zip, scan_mods, set_mod_enabled,
 };
 use commands::nexus::{
     nexus_clear_key, nexus_endorse, nexus_set_key, nexus_status, nexus_update_mod, nexus_validate,
@@ -27,31 +27,58 @@ fn greet(name: &str) -> String {
 
 fn process_nxm_url(app: &tauri::AppHandle, url: &str) {
     // Never log NXM key query params in plaintext.
-    let safe_hint = url.split('?').next().unwrap_or("nxm://…");
-    match install_from_nxm(url.to_string()) {
-        Ok(entry) => {
-            let _ = app.emit(
-                "nxm-install-result",
-                serde_json::json!({
-                    "ok": true,
-                    "mod": entry,
-                    "message": format!("已通过 NXM 安装：{}", entry.name),
-                }),
-            );
+    let safe_hint = url.split('?').next().unwrap_or("nxm://…").to_string();
+    let _ = app.emit(
+        "nxm-install-started",
+        serde_json::json!({
+            "hint": safe_hint,
+            "message": "正在通过 NXM 下载并安装模组…",
+        }),
+    );
+
+    let handle = app.clone();
+    let url = url.to_string();
+    let hint_for_err = safe_hint;
+    tauri::async_runtime::spawn(async move {
+        let outcome = tauri::async_runtime::spawn_blocking(move || install_from_nxm_blocking(url))
+            .await;
+        match outcome {
+            Ok(Ok(entry)) => {
+                let _ = handle.emit(
+                    "nxm-install-result",
+                    serde_json::json!({
+                        "ok": true,
+                        "mod": entry,
+                        "message": format!("已通过 NXM 安装：{}", entry.name),
+                    }),
+                );
+            }
+            Ok(Err(e)) => {
+                let _ = handle.emit(
+                    "nxm-install-result",
+                    serde_json::json!({
+                        "ok": false,
+                        "code": e.code,
+                        "message": e.message,
+                        "detail": e.detail,
+                        "hint": hint_for_err,
+                    }),
+                );
+            }
+            Err(_) => {
+                let _ = handle.emit(
+                    "nxm-install-result",
+                    serde_json::json!({
+                        "ok": false,
+                        "code": "task_join_failed",
+                        "message": "NXM 安装后台任务失败",
+                        "detail": null,
+                        "hint": hint_for_err,
+                    }),
+                );
+            }
         }
-        Err(e) => {
-            let _ = app.emit(
-                "nxm-install-result",
-                serde_json::json!({
-                    "ok": false,
-                    "code": e.code,
-                    "message": e.message,
-                    "detail": e.detail,
-                    "hint": safe_hint,
-                }),
-            );
-        }
-    }
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

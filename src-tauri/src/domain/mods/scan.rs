@@ -66,6 +66,15 @@ pub fn is_svmm_backup_dir_name(name: &str) -> bool {
     name.starts_with(".svmm-backup-")
 }
 
+/// Mid-install staging dirs under Mods (crash leftovers must not appear as mods).
+pub fn is_svmm_extract_dir_name(name: &str) -> bool {
+    name.starts_with(".svmm-extract-")
+}
+
+fn is_svmm_internal_dir_name(name: &str) -> bool {
+    is_svmm_backup_dir_name(name) || is_svmm_extract_dir_name(name)
+}
+
 /// Collect every directory under `mods_path` that contains `manifest.json`.
 fn collect_manifest_dirs(mods_path: &Path) -> AppResult<Vec<PathBuf>> {
     let mut out = Vec::new();
@@ -96,8 +105,8 @@ fn walk_for_manifests(dir: &Path, out: &mut Vec<PathBuf>) -> AppResult<()> {
         if !path.is_dir() {
             continue;
         }
-        // Skip update backups entirely (do not treat as disabled mods; do not recurse).
-        if is_svmm_backup_dir_name(&name_str) {
+        // Skip SVMM internal dirs (backups / extract staging); do not treat as mods.
+        if is_svmm_internal_dir_name(&name_str) {
             continue;
         }
         if path.join("manifest.json").is_file() {
@@ -242,6 +251,30 @@ mod tests {
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, "Ada.Test");
         assert!(!list.iter().any(|m| m.id == "Ada.BackupGhost"));
+        let _ = fs::remove_dir_all(&mods);
+    }
+
+    #[test]
+    fn scan_skips_svmm_extract_staging_folders() {
+        let mods = make_mods_fixture();
+        let staging = mods.join(".svmm-extract-11111111-2222-3333-4444-555555555555");
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(
+            staging.join("manifest.json"),
+            br#"{
+  "Name": "Staging Ghost",
+  "Author": "Ada",
+  "Version": "0.1.0",
+  "Description": "should not scan",
+  "UniqueID": "Ada.StagingGhost"
+}"#,
+        )
+        .unwrap();
+
+        let list = scan_mods(&mods).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "Ada.Test");
+        assert!(!list.iter().any(|m| m.id == "Ada.StagingGhost"));
         let _ = fs::remove_dir_all(&mods);
     }
 }
