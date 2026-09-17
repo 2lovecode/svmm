@@ -61,6 +61,11 @@ pub fn is_mod_enabled(mod_dir: &Path) -> bool {
     !leaf_name(mod_dir).starts_with('.')
 }
 
+/// SVMM backup folders under Mods (must not appear as disabled mods in the scan).
+pub fn is_svmm_backup_dir_name(name: &str) -> bool {
+    name.starts_with(".svmm-backup-")
+}
+
 /// Collect every directory under `mods_path` that contains `manifest.json`.
 fn collect_manifest_dirs(mods_path: &Path) -> AppResult<Vec<PathBuf>> {
     let mut out = Vec::new();
@@ -89,6 +94,10 @@ fn walk_for_manifests(dir: &Path, out: &mut Vec<PathBuf>) -> AppResult<()> {
             continue;
         }
         if !path.is_dir() {
+            continue;
+        }
+        // Skip update backups entirely (do not treat as disabled mods; do not recurse).
+        if is_svmm_backup_dir_name(&name_str) {
             continue;
         }
         if path.join("manifest.json").is_file() {
@@ -209,6 +218,30 @@ mod tests {
         let list2 = scan_mods(&mods).unwrap();
         assert!(!list2[0].enabled);
         assert!(list2[0].folder_path.contains(".Ada") || list2[0].folder_path.starts_with('.'));
+        let _ = fs::remove_dir_all(&mods);
+    }
+
+    #[test]
+    fn scan_skips_svmm_backup_folders() {
+        let mods = make_mods_fixture();
+        let backup = mods.join(".svmm-backup-Ada.Test-1700000000");
+        fs::create_dir_all(&backup).unwrap();
+        fs::write(
+            backup.join("manifest.json"),
+            br#"{
+  "Name": "Backup Ghost",
+  "Author": "Ada",
+  "Version": "0.9.0",
+  "Description": "should not scan",
+  "UniqueID": "Ada.BackupGhost"
+}"#,
+        )
+        .unwrap();
+
+        let list = scan_mods(&mods).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "Ada.Test");
+        assert!(!list.iter().any(|m| m.id == "Ada.BackupGhost"));
         let _ = fs::remove_dir_all(&mods);
     }
 }

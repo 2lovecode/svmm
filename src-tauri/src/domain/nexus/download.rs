@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 
+use crate::domain::mods::enable;
 use crate::domain::mods::install::install_mod_zip;
 use crate::domain::mods::scan::ModEntry;
 use crate::domain::nexus::client::{
@@ -441,6 +442,35 @@ fn restore_backup(backup: &Path, original: &Path) -> AppResult<()> {
     })
 }
 
+/// Prefer restore failure when both update and restore fail (user must know backup state).
+pub fn merge_update_and_restore_errors(update_err: AppError, restore_err: AppError) -> AppError {
+    let update_part = match &update_err.detail {
+        Some(d) if !d.is_empty() => format!("{}（{}）", update_err.message, d),
+        _ => update_err.message.clone(),
+    };
+    let restore_part = match &restore_err.detail {
+        Some(d) if !d.is_empty() => format!("{}（{}）", restore_err.message, d),
+        _ => restore_err.message.clone(),
+    };
+    AppError::new(
+        "nexus_update_restore_failed",
+        "更新失败且无法恢复备份",
+    )
+    .with_detail(format!("更新错误：{update_part}；恢复错误：{restore_part}"))
+}
+
+/// After install, re-apply previous enabled/disabled folder naming.
+pub fn preserve_enabled_state(
+    mods_path: &Path,
+    entry: ModEntry,
+    was_enabled: bool,
+) -> AppResult<ModEntry> {
+    if was_enabled == entry.enabled {
+        return Ok(entry);
+    }
+    enable::set_mod_enabled(mods_path, &entry.folder_path, was_enabled)
+}
+
 /// Download latest Nexus main file and replace the local mod folder (with backup).
 pub fn update_mod_from_nexus(mod_entry: &ModEntry, mods_path: &Path) -> AppResult<ModEntry> {
     let nexus_id = parse_nexus_mod_id(&mod_entry.update_keys).ok_or_else(|| {
@@ -461,6 +491,7 @@ pub fn update_mod_from_nexus(mod_entry: &ModEntry, mods_path: &Path) -> AppResul
             .with_detail(original.display().to_string()));
     }
 
+    let was_enabled = mod_entry.enabled;
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -483,13 +514,13 @@ pub fn update_mod_from_nexus(mod_entry: &ModEntry, mods_path: &Path) -> AppResul
 
     match install_result {
         Ok(entry) => {
-            // Leave backup in place for safety.
-            Ok(entry)
+            let _ = fs::remove_dir_all(&backup_path);
+            preserve_enabled_state(mods_path, entry, was_enabled)
         }
-        Err(err) => {
-            let _ = restore_backup(&backup_path, &original);
-            Err(err)
-        }
+        Err(err) => match restore_backup(&backup_path, &original) {
+            Ok(()) => Err(err),
+            Err(restore_err) => Err(merge_update_and_restore_errors(err, restore_err)),
+        },
     }
 }
 
@@ -555,5 +586,50 @@ mod tests {
           ]
         }"#;
         assert_eq!(pick_newest_main_file_id(json).unwrap(), 20);
+    }
+
+    #[test]
+    fn merge_update_and_restore_errors_propagates_both() {
+        let update = AppError::new("zip_invalid", "无效的 zip 压缩包");
+        let restore = AppError::new("nexus_update_restore_failed", "更新失败且无法恢复备份")
+            .with_detail("access denied");
+        let merged = merge_update_and_restore_errors(update, restore);
+        assert_eq!(merged.code, "nexus_update_restore_failed");
+        let detail = merged.detail.unwrap_or_default();
+        assert!(detail.contains("无效的 zip"));
+        assert!(detail.contains("access denied"));
+    }
+
+    #[test]
+    fn preserve_enabled_state_disables_installed_folder() {
+        let mods = std::env::temp_dir().join(format!(
+            "svmm-preserve-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&mods);
+        let mod_dir = mods.join("Fresh.Mod");
+        fs::create_dir_all(&mod_dir).unwrap();
+        fs::write(
+            mod_dir.join("manifest.json"),
+            br#"{
+  "Name": "Fresh",
+  "Author": "Ada",
+  "Version": "2.0.0",
+  "Description": "x",
+  "UniqueID": "Fresh.Mod"
+}"#,
+        )
+        .unwrap();
+
+        let entry = crate::domain::mods::scan::entry_from_mod_dir(&mods, &mod_dir).unwrap();
+        assert!(entry.enabled);
+        let disabled = preserve_enabled_state(&mods, entry, false).unwrap();
+        assert!(!disabled.enabled);
+        assert!(mods.join(".Fresh.Mod").is_dir());
+        let _ = fs::remove_dir_all(&mods);
     }
 }
