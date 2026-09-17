@@ -213,7 +213,7 @@ body {
 }
 
 .col-status {
-  width: 100px;
+  width: 120px;
 }
 
 .col-author {
@@ -248,9 +248,21 @@ body {
   color: #355028;
 }
 
-.badge[data-status="missing_manifest"] {
+.badge[data-status="missing_manifest"],
+.badge[data-status="broken"],
+.badge[data-status="incompatible"] {
   background: #f0d9d4;
   color: var(--danger);
+}
+
+.badge[data-status="update_available"] {
+  background: #dce8f5;
+  color: #2a4a6b;
+}
+
+.badge[data-status="unofficial_update"] {
+  background: #f5e6c8;
+  color: #6b4e1f;
 }
 
 .switch {

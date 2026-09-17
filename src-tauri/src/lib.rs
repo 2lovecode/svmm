@@ -10,6 +10,7 @@ use commands::profiles::{
     snapshot_current_as_profile,
 };
 use commands::smapi::launch_smapi;
+use commands::updates::check_mod_updates;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -36,7 +37,8 @@ pub fn run() {
             rename_profile,
             delete_profile,
             apply_profile,
-            snapshot_current_as_profile
+            snapshot_current_as_profile,
+            check_mod_updates
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

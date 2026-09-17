@@ -45,6 +45,14 @@ async function onRefresh() {
   }
 }
 
+async function onCheckUpdates() {
+  try {
+    await mods.checkUpdates();
+  } catch {
+    /* error surfaced in store */
+  }
+}
+
 async function onLaunch() {
   try {
     await mods.launch();
@@ -107,6 +115,14 @@ async function onProfileChange(event: Event) {
         @click="onRefresh"
       >
         {{ mods.loading ? "刷新中…" : "刷新" }}
+      </button>
+      <button
+        type="button"
+        class="btn"
+        :disabled="busy || mods.checkingUpdates || mods.loading"
+        @click="onCheckUpdates"
+      >
+        {{ mods.checkingUpdates ? "检查中…" : "检查更新" }}
       </button>
       <button
         type="button"

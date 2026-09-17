@@ -17,6 +17,14 @@ function statusLabel(status: string): string {
       return "正常";
     case "missing_manifest":
       return "清单异常";
+    case "incompatible":
+      return "不兼容";
+    case "update_available":
+      return "有更新";
+    case "unofficial_update":
+      return "非官方更新";
+    case "broken":
+      return "异常";
     default:
       return status;
   }

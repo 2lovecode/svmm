@@ -49,6 +49,13 @@ export interface ApplyReport {
   errors: string[];
 }
 
+export interface UpdateInfo {
+  id: string;
+  status: string;
+  suggestedVersion: string | null;
+  errorReason: string | null;
+}
+
 export interface AppError {
   code: string;
   message: string;

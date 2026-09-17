@@ -5,6 +5,7 @@ import type {
   ModEntry,
   Profile,
   Settings,
+  UpdateInfo,
 } from "../types/mod";
 
 export function scanMods(): Promise<ModEntry[]> {
@@ -59,4 +60,8 @@ export function applyProfile(id: string): Promise<ApplyReport> {
 
 export function snapshotCurrentAsProfile(name: string): Promise<Profile> {
   return invoke<Profile>("snapshot_current_as_profile", { name });
+}
+
+export function checkModUpdates(): Promise<UpdateInfo[]> {
+  return invoke<UpdateInfo[]>("check_mod_updates");
 }
