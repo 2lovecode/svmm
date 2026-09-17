@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -26,49 +26,62 @@ impl GamePaths {
     }
 }
 
-fn candidate_game_dirs() -> Vec<PathBuf> {
+/// Build ordered install candidates from explicit Windows roots.
+/// Order locked by brief: Steam (x86) → Steam ProgramFiles → Xbox → GOG.
+fn candidate_game_dirs_from(
+    program_files_x86: Option<&Path>,
+    program_files: Option<&Path>,
+    local_app_data: Option<&Path>,
+) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
-    // Order locked by brief: Steam (x86) → Steam ProgramFiles → Xbox → GOG
-    if let Ok(pf86) = env::var("ProgramFiles(x86)") {
+    if let Some(pf86) = program_files_x86 {
         candidates.push(
-            PathBuf::from(&pf86)
-                .join("Steam")
+            pf86.join("Steam")
                 .join("steamapps")
                 .join("common")
                 .join("Stardew Valley"),
         );
     }
 
-    if let Ok(pf) = env::var("ProgramFiles") {
+    if let Some(pf) = program_files {
         candidates.push(
-            PathBuf::from(pf)
-                .join("Steam")
+            pf.join("Steam")
                 .join("steamapps")
                 .join("common")
                 .join("Stardew Valley"),
         );
     }
 
-    if let Ok(local) = env::var("LOCALAPPDATA") {
+    if let Some(local) = local_app_data {
         candidates.push(
-            PathBuf::from(local)
+            local
                 .join("XboxGames")
                 .join("Stardew Valley")
                 .join("Content"),
         );
     }
 
-    if let Ok(pf86) = env::var("ProgramFiles(x86)") {
+    if let Some(pf86) = program_files_x86 {
         candidates.push(
-            PathBuf::from(pf86)
-                .join("GOG Galaxy")
+            pf86.join("GOG Galaxy")
                 .join("Games")
                 .join("Stardew Valley"),
         );
     }
 
     candidates
+}
+
+fn candidate_game_dirs() -> Vec<PathBuf> {
+    let pf86 = env::var_os("ProgramFiles(x86)").map(PathBuf::from);
+    let pf = env::var_os("ProgramFiles").map(PathBuf::from);
+    let local = env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    candidate_game_dirs_from(
+        pf86.as_deref(),
+        pf.as_deref(),
+        local.as_deref(),
+    )
 }
 
 pub fn discover_game_paths() -> AppResult<Option<GamePaths>> {
@@ -213,7 +226,10 @@ mod tests {
 
     #[test]
     fn candidate_order_is_steam_x86_steam_pf_xbox_gog() {
-        let dirs = candidate_game_dirs();
+        let pf86 = PathBuf::from(r"C:\Fake Program Files (x86)");
+        let pf = PathBuf::from(r"C:\Fake Program Files");
+        let local = PathBuf::from(r"C:\Fake\LocalAppData");
+        let dirs = candidate_game_dirs_from(Some(&pf86), Some(&pf), Some(&local));
         let labels: Vec<&str> = dirs
             .iter()
             .map(|p| {
