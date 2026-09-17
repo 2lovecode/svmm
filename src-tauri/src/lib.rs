@@ -5,6 +5,7 @@ mod storage;
 
 use commands::game::{discover_paths, get_settings, save_settings, validate_paths};
 use commands::mods::{scan_mods, set_mod_enabled};
+use commands::nexus::{nexus_clear_key, nexus_set_key, nexus_status, nexus_validate};
 use commands::profiles::{
     apply_profile, create_profile, delete_profile, list_profiles, rename_profile,
     snapshot_current_as_profile,
@@ -38,7 +39,11 @@ pub fn run() {
             delete_profile,
             apply_profile,
             snapshot_current_as_profile,
-            check_mod_updates
+            check_mod_updates,
+            nexus_set_key,
+            nexus_clear_key,
+            nexus_status,
+            nexus_validate
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

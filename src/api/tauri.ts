@@ -3,6 +3,8 @@ import type {
   ApplyReport,
   GamePaths,
   ModEntry,
+  NexusStatus,
+  NexusUser,
   Profile,
   Settings,
   UpdateInfo,
@@ -64,4 +66,20 @@ export function snapshotCurrentAsProfile(name: string): Promise<Profile> {
 
 export function checkModUpdates(): Promise<UpdateInfo[]> {
   return invoke<UpdateInfo[]>("check_mod_updates");
+}
+
+export function nexusSetKey(key: string): Promise<void> {
+  return invoke<void>("nexus_set_key", { key });
+}
+
+export function nexusClearKey(): Promise<void> {
+  return invoke<void>("nexus_clear_key");
+}
+
+export function nexusStatus(): Promise<NexusStatus> {
+  return invoke<NexusStatus>("nexus_status");
+}
+
+export function nexusValidate(): Promise<NexusUser> {
+  return invoke<NexusUser>("nexus_validate");
 }

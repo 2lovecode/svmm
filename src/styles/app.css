@@ -420,6 +420,28 @@ body {
   margin-top: 18px;
 }
 
+.settings-section {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-section h2 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  color: var(--soil);
+}
+
+.nexus-status.ok {
+  color: var(--moss);
+  font-weight: 600;
+}
+
+.nexus-status.muted {
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .feedback {
   margin-top: 12px;
 }

@@ -61,6 +61,30 @@ async function onSave() {
     /* store error */
   }
 }
+
+async function onSaveNexusKey() {
+  try {
+    await store.saveNexusKey();
+  } catch {
+    /* store error */
+  }
+}
+
+async function onValidateNexus() {
+  try {
+    await store.validateNexusKey();
+  } catch {
+    /* store error */
+  }
+}
+
+async function onClearNexusKey() {
+  try {
+    await store.clearNexusKey();
+  } catch {
+    /* store error */
+  }
+}
 </script>
 
 <template>
@@ -130,6 +154,57 @@ async function onSave() {
           {{ store.saving ? "保存中…" : "保存" }}
         </button>
       </div>
+
+      <section class="settings-section">
+        <h2>Nexus Mods</h2>
+        <p class="hint">
+          API 密钥保存在系统凭据存储中，不会写入设置文件。
+          状态：
+          <span :class="store.nexusHasKey ? 'nexus-status ok' : 'nexus-status muted'">
+            {{ store.nexusHasKey ? "已连接" : "未配置" }}
+          </span>
+        </p>
+
+        <div class="field">
+          <label for="nexus-key">API 密钥</label>
+          <div class="field-row">
+            <input
+              id="nexus-key"
+              v-model="store.nexusKeyInput"
+              type="password"
+              autocomplete="off"
+              placeholder="粘贴 Nexus API Key"
+            />
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="store.nexusBusy || !store.nexusKeyInput.trim()"
+            @click="onSaveNexusKey"
+          >
+            保存密钥
+          </button>
+          <button
+            type="button"
+            class="btn"
+            :disabled="store.nexusBusy || !store.nexusHasKey"
+            @click="onValidateNexus"
+          >
+            验证
+          </button>
+          <button
+            type="button"
+            class="btn btn-danger"
+            :disabled="store.nexusBusy || !store.nexusHasKey"
+            @click="onClearNexusKey"
+          >
+            清除
+          </button>
+        </div>
+      </section>
 
       <p v-if="store.message" class="feedback ok">{{ store.message }}</p>
       <p v-if="store.error" class="feedback err">{{ store.error }}</p>

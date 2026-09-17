@@ -56,6 +56,16 @@ export interface UpdateInfo {
   errorReason: string | null;
 }
 
+export interface NexusStatus {
+  hasKey: boolean;
+}
+
+export interface NexusUser {
+  name: string;
+  isPremium: boolean;
+  isSupporter: boolean;
+}
+
 export interface AppError {
   code: string;
   message: string;
