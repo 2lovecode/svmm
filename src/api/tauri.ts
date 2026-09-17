@@ -105,3 +105,7 @@ export function installModZip(path: string): Promise<ModEntry> {
 export function installFromNxm(url: string): Promise<ModEntry> {
   return invoke<ModEntry>("install_from_nxm", { url });
 }
+
+export function openLogDir(): Promise<void> {
+  return invoke<void>("open_log_dir");
+}

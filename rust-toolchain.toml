@@ -1,0 +1,3 @@
+# SVMM on Windows must use the MSVC toolchain (GNU lacks dlltool for Tauri/WebView2).
+[toolchain]
+channel = "stable-x86_64-pc-windows-msvc"

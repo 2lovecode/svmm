@@ -16,6 +16,7 @@ use commands::profiles::{
 };
 use commands::smapi::launch_smapi;
 use commands::updates::check_mod_updates;
+use storage::log_util::open_log_dir;
 use tauri::Emitter;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -117,7 +118,8 @@ pub fn run() {
             nexus_status,
             nexus_validate,
             nexus_endorse,
-            nexus_update_mod
+            nexus_update_mod,
+            open_log_dir
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

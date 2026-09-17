@@ -1,4 +1,5 @@
-:root {
+:root,
+[data-theme="light"] {
   --soil: #3d2f24;
   --soil-deep: #2a211a;
   --earth: #6b5344;
@@ -13,6 +14,9 @@
   --danger: #9b3b2e;
   --border: #c9bba6;
   --shadow: rgba(42, 33, 26, 0.12);
+  --surface: rgba(255, 253, 248, 0.88);
+  --surface-solid: #fffdf8;
+  --table-head: #e7dfcf;
   --radius: 6px;
   --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --mono: "Cascadia Mono", "Consolas", monospace;
@@ -27,6 +31,33 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --soil: #d4c4a8;
+  --soil-deep: #1a1511;
+  --earth: #a89078;
+  --clay: #c4a574;
+  --moss: #6a8f55;
+  --moss-bright: #7ea566;
+  --leaf: #3d4f32;
+  --cream: #241c16;
+  --parchment: #1c1612;
+  --ink: #ebe4d4;
+  --muted: #a89888;
+  --danger: #e08070;
+  --border: #4a3c30;
+  --shadow: rgba(0, 0, 0, 0.35);
+  --surface: rgba(36, 28, 22, 0.92);
+  --surface-solid: #2a211a;
+  --table-head: #322820;
+  color-scheme: dark;
+
+  color: var(--ink);
+  background:
+    radial-gradient(ellipse at top left, rgba(74, 107, 58, 0.22), transparent 50%),
+    linear-gradient(165deg, #1a1511 0%, #241c16 45%, #2a211a 100%);
 }
 
 *,
@@ -70,7 +101,7 @@ body {
 .btn {
   appearance: none;
   border: 1px solid var(--border);
-  background: #fffdf8;
+  background: var(--surface-solid);
   color: var(--ink);
   border-radius: var(--radius);
   padding: 0.4em 0.85em;
@@ -122,7 +153,11 @@ body {
   gap: 12px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(255, 253, 248, 0.92), rgba(235, 228, 212, 0.85));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-solid) 92%, transparent),
+    color-mix(in srgb, var(--parchment) 85%, transparent)
+  );
 }
 
 .brand {
@@ -166,7 +201,7 @@ body {
 .mod-table-wrap {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: rgba(255, 253, 248, 0.88);
+  background: var(--surface);
   overflow: auto;
   box-shadow: 0 1px 2px var(--shadow);
 }
@@ -188,7 +223,7 @@ body {
 .mod-table th {
   position: sticky;
   top: 0;
-  background: #e7dfcf;
+  background: var(--table-head);
   color: var(--soil);
   font-weight: 600;
   font-size: 0.8rem;
@@ -312,7 +347,7 @@ body {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #fffdf8;
+  background: var(--surface-solid);
   box-shadow: 0 1px 2px var(--shadow);
   transition: transform 0.15s;
 }
@@ -377,7 +412,7 @@ body {
   gap: 12px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
-  background: rgba(255, 253, 248, 0.9);
+  background: var(--surface);
 }
 
 .settings-header h1 {
@@ -420,7 +455,7 @@ body {
   border-radius: var(--radius);
   padding: 0.5em 0.7em;
   font: inherit;
-  background: #fffdf8;
+  background: var(--surface-solid);
   color: var(--ink);
 }
 
@@ -481,7 +516,7 @@ body {
   border-radius: var(--radius);
   padding: 0.4em 0.6em;
   font: inherit;
-  background: #fffdf8;
+  background: var(--surface-solid);
   color: var(--ink);
   cursor: pointer;
 }
@@ -534,7 +569,7 @@ body {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: rgba(255, 253, 248, 0.88);
+  background: var(--surface);
   overflow: hidden;
 }
 
@@ -586,9 +621,40 @@ body {
   border-radius: var(--radius);
   padding: 0.4em 0.6em;
   font: inherit;
-  background: #fffdf8;
+  background: var(--surface-solid);
+  color: var(--ink);
   min-width: 160px;
   max-width: 100%;
+}
+
+.field select {
+  width: 100%;
+  max-width: 280px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5em 0.7em;
+  font: inherit;
+  background: var(--surface-solid);
+  color: var(--ink);
+}
+
+.field select:focus {
+  outline: 2px solid rgba(74, 107, 58, 0.35);
+  border-color: var(--moss);
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 420px;
+}
+
+.toggle-row .toggle-label {
+  margin: 0;
+  font-weight: 600;
+  color: var(--soil);
 }
 
 .home-page.drag-over .page-body {

@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import * as api from "../api/tauri";
+import { bindTheme } from "../theme";
 import {
   defaultSettings,
   formatAppError,
@@ -19,12 +20,21 @@ export const useSettingsStore = defineStore("settings", () => {
   const nexusHasKey = ref(false);
   const nexusUser = ref<NexusUser | null>(null);
   const nexusBusy = ref(false);
+  const openingLogDir = ref(false);
+
+  /** 已配置 = key present; 已连接 = validated this session */
+  const nexusStatusLabel = computed(() => {
+    if (nexusUser.value) return "已连接";
+    if (nexusHasKey.value) return "已配置";
+    return "未配置";
+  });
 
   async function load() {
     loading.value = true;
     error.value = null;
     try {
       settings.value = await api.getSettings();
+      bindTheme(settings.value.theme);
       await refreshNexusStatus();
     } catch (e) {
       error.value = formatAppError(e);
@@ -40,6 +50,7 @@ export const useSettingsStore = defineStore("settings", () => {
     message.value = null;
     try {
       await api.saveSettings({ ...settings.value });
+      bindTheme(settings.value.theme);
       message.value = "设置已保存";
     } catch (e) {
       error.value = formatAppError(e);
@@ -73,6 +84,9 @@ export const useSettingsStore = defineStore("settings", () => {
 
   function patch(partial: Partial<Settings>) {
     settings.value = { ...settings.value, ...partial };
+    if (partial.theme !== undefined) {
+      bindTheme(partial.theme);
+    }
   }
 
   async function refreshNexusStatus() {
@@ -90,6 +104,7 @@ export const useSettingsStore = defineStore("settings", () => {
     try {
       await api.nexusSetKey(nexusKeyInput.value);
       nexusKeyInput.value = "";
+      nexusUser.value = null;
       await refreshNexusStatus();
       message.value = "Nexus API 密钥已保存";
     } catch (e) {
@@ -144,6 +159,20 @@ export const useSettingsStore = defineStore("settings", () => {
     }
   }
 
+  async function openLogDir() {
+    openingLogDir.value = true;
+    error.value = null;
+    try {
+      await api.openLogDir();
+      message.value = "已打开日志目录";
+    } catch (e) {
+      error.value = formatAppError(e);
+      throw e;
+    } finally {
+      openingLogDir.value = false;
+    }
+  }
+
   return {
     settings,
     loading,
@@ -154,6 +183,8 @@ export const useSettingsStore = defineStore("settings", () => {
     nexusHasKey,
     nexusUser,
     nexusBusy,
+    nexusStatusLabel,
+    openingLogDir,
     load,
     save,
     discover,
@@ -161,5 +192,6 @@ export const useSettingsStore = defineStore("settings", () => {
     saveNexusKey,
     validateNexusKey,
     clearNexusKey,
+    openLogDir,
   };
 });

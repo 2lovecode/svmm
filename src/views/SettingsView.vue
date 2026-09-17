@@ -85,6 +85,24 @@ async function onClearNexusKey() {
     /* store error */
   }
 }
+
+function onThemeChange(event: Event) {
+  const value = (event.target as HTMLSelectElement).value;
+  store.patch({ theme: value });
+}
+
+function onCheckUpdatesToggle(event: Event) {
+  const checked = (event.target as HTMLInputElement).checked;
+  store.patch({ checkUpdatesOnStartup: checked });
+}
+
+async function onOpenLogDir() {
+  try {
+    await store.openLogDir();
+  } catch {
+    /* store error */
+  }
+}
 </script>
 
 <template>
@@ -156,12 +174,61 @@ async function onClearNexusKey() {
       </div>
 
       <section class="settings-section">
+        <h2>外观与行为</h2>
+
+        <div class="field">
+          <label for="theme">主题</label>
+          <select
+            id="theme"
+            :value="store.settings.theme"
+            @change="onThemeChange"
+          >
+            <option value="system">跟随系统</option>
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <div class="toggle-row">
+            <span class="toggle-label">启动时检查模组更新</span>
+            <label class="switch">
+              <input
+                type="checkbox"
+                :checked="store.settings.checkUpdatesOnStartup"
+                @change="onCheckUpdatesToggle"
+              />
+              <span class="switch-ui" />
+              <span class="sr-only">启动时检查模组更新</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button
+            type="button"
+            class="btn"
+            :disabled="store.openingLogDir"
+            @click="onOpenLogDir"
+          >
+            {{ store.openingLogDir ? "打开中…" : "打开日志目录" }}
+          </button>
+        </div>
+      </section>
+
+      <section class="settings-section">
         <h2>Nexus Mods</h2>
         <p class="hint">
           API 密钥保存在系统凭据存储中，不会写入设置文件。
           状态：
-          <span :class="store.nexusHasKey ? 'nexus-status ok' : 'nexus-status muted'">
-            {{ store.nexusHasKey ? "已连接" : "未配置" }}
+          <span
+            :class="
+              store.nexusHasKey || store.nexusUser
+                ? 'nexus-status ok'
+                : 'nexus-status muted'
+            "
+          >
+            {{ store.nexusStatusLabel }}
           </span>
         </p>
 
