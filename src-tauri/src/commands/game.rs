@@ -1,4 +1,5 @@
 use crate::domain::game::{self, GamePaths};
+use crate::domain::http;
 use crate::error::AppResult;
 use crate::storage::log_util::log_result;
 use crate::storage::settings::{self, Settings};
@@ -9,7 +10,11 @@ pub fn get_settings() -> AppResult<Settings> {
 }
 
 #[tauri::command]
-pub fn save_settings(settings: Settings) -> AppResult<()> {
+pub fn save_settings(mut settings: Settings) -> AppResult<()> {
+    if let Some(path) = settings.game_path.take() {
+        settings.game_path = Some(game::normalize_game_dir(path));
+    }
+    settings.download_proxy = http::normalize_download_proxy(settings.download_proxy.as_deref())?;
     log_result(settings::save_settings(&settings))
 }
 

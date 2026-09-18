@@ -27,6 +27,7 @@ export interface Settings {
   theme: string;
   language: string;
   checkUpdatesOnStartup: boolean;
+  downloadProxy: string | null;
 }
 
 export interface GamePaths {
@@ -35,18 +36,67 @@ export interface GamePaths {
   modsPath: string;
 }
 
+export interface SmapiStatus {
+  installed: boolean;
+  gameFound: boolean;
+  gamePath: string | null;
+  smapiPath: string | null;
+}
+
+export interface SmapiInstallReport {
+  version: string;
+  smapiPath: string;
+}
+
+export interface SmapiInstallProgress {
+  phase: string;
+  message: string;
+  received: number;
+  total: number | null;
+  percent: number | null;
+}
+
 export interface Profile {
   id: string;
   name: string;
   createdAt: string;
   updatedAt: string;
-  enabledModIds: string[];
+  modIds: string[];
 }
 
 export interface ApplyReport {
-  enabled: number;
-  disabled: number;
+  deployed: number;
+  removed: number;
   errors: string[];
+}
+
+export interface LibraryMod {
+  id: string;
+  name: string;
+  author: string;
+  version: string;
+  description: string;
+  idFromManifest: boolean;
+  category: string | null;
+  nexusModId: number | null;
+  nexusFileId: number | null;
+  folderName: string;
+  files: { path: string; sha256: string }[];
+}
+
+export interface ProfileState {
+  profile: Profile;
+  mods: LibraryMod[];
+  applied: boolean;
+}
+
+export interface NexusFileInfo {
+  fileId: number;
+  name: string;
+  version: string;
+  categoryName: string;
+  uploadedTimestamp: number;
+  isMain: boolean;
 }
 
 export interface UpdateInfo {
@@ -66,6 +116,31 @@ export interface NexusUser {
   isSupporter: boolean;
 }
 
+export interface NexusCategory {
+  name: string;
+  count: number;
+}
+
+export interface NexusCatalogMod {
+  modId: number;
+  name: string;
+  author: string;
+  summary: string;
+  version: string;
+  category: string;
+  downloads: number;
+  endorsements: number;
+  thumbnailUrl: string | null;
+  libraryStatus: string;
+}
+
+export interface NexusBrowsePage {
+  page: number;
+  pageSize: number;
+  total: number;
+  mods: NexusCatalogMod[];
+}
+
 export interface AppError {
   code: string;
   message: string;
@@ -81,6 +156,7 @@ export function defaultSettings(): Settings {
     theme: "system",
     language: "zh-CN",
     checkUpdatesOnStartup: true,
+    downloadProxy: null,
   };
 }
 

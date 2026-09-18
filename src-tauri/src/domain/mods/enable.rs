@@ -57,11 +57,10 @@ pub fn set_mod_enabled(mods_path: &Path, folder_path: &str, enabled: bool) -> Ap
 
     if current != new_path {
         if new_path.exists() {
-            return Err(AppError::new(
-                "mod_rename_conflict",
-                "目标目录已存在，无法切换启用状态",
-            )
-            .with_detail(new_path.display().to_string()));
+            return Err(
+                AppError::new("mod_rename_conflict", "目标目录已存在，无法切换启用状态")
+                    .with_detail(new_path.display().to_string()),
+            );
         }
         fs::rename(&current, &new_path).map_err(|e| {
             AppError::new("mod_rename_failed", "无法重命名 mod 目录以切换启用状态")

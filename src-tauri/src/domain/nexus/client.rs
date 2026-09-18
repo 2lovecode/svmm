@@ -68,10 +68,7 @@ pub fn validate_nexus_api_key() -> AppResult<NexusUser> {
     let api_key = secure_key::get_nexus_api_key()?;
     let headers = build_nexus_headers(&api_key);
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|_| AppError::new("nexus_client_failed", "无法创建 Nexus HTTP 客户端"))?;
+    let client = crate::domain::http::blocking_client(Duration::from_secs(REQUEST_TIMEOUT_SECS))?;
 
     let mut request = client.get(VALIDATE_URL);
     for (name, value) in &headers {
@@ -113,10 +110,7 @@ pub fn endorse_mod(mod_id: u32, version: Option<&str>) -> AppResult<()> {
     let headers = build_nexus_headers(&api_key);
     let url = endorse_mod_url(mod_id);
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|_| AppError::new("nexus_client_failed", "无法创建 Nexus HTTP 客户端"))?;
+    let client = crate::domain::http::blocking_client(Duration::from_secs(REQUEST_TIMEOUT_SECS))?;
 
     let mut request = client.post(&url);
     for (name, value) in &headers {
@@ -219,14 +213,8 @@ mod tests {
             parse_nexus_mod_id(&[String::from("Nexus:1915")]),
             Some(1915)
         );
-        assert_eq!(
-            parse_nexus_mod_id(&[String::from("nexus:99")]),
-            Some(99)
-        );
-        assert_eq!(
-            parse_nexus_mod_id(&[String::from("NEXUS:7")]),
-            Some(7)
-        );
+        assert_eq!(parse_nexus_mod_id(&[String::from("nexus:99")]), Some(99));
+        assert_eq!(parse_nexus_mod_id(&[String::from("NEXUS:7")]), Some(7));
         assert_eq!(
             parse_nexus_mod_id(&[String::from("Chucklefish:1"), String::from("Nexus:3")]),
             Some(3)

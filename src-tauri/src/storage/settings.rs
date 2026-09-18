@@ -21,6 +21,9 @@ pub struct Settings {
     pub language: String,
     #[serde(alias = "check_updates_on_startup")]
     pub check_updates_on_startup: bool,
+    /// HTTP or SOCKS proxy for SMAPI and Nexus downloads. Empty uses the system proxy.
+    #[serde(default, alias = "download_proxy")]
+    pub download_proxy: Option<String>,
 }
 
 impl Default for Settings {
@@ -33,6 +36,7 @@ impl Default for Settings {
             theme: "system".into(),
             language: "zh-CN".into(),
             check_updates_on_startup: true,
+            download_proxy: None,
         }
     }
 }
@@ -94,11 +98,16 @@ mod tests {
             theme: "system".into(),
             language: "zh-CN".into(),
             check_updates_on_startup: true,
+            download_proxy: Some("http://127.0.0.1:7890".into()),
         };
         save_settings_to(&path, &s).unwrap();
         let loaded = load_settings_from(&path).unwrap();
         assert_eq!(loaded.game_path, s.game_path);
         assert_eq!(loaded.language, "zh-CN");
+        assert_eq!(
+            loaded.download_proxy.as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -135,6 +144,7 @@ mod tests {
         );
         assert_eq!(loaded.last_profile_id.as_deref(), Some("default"));
         assert!(!loaded.check_updates_on_startup);
+        assert_eq!(loaded.download_proxy, None);
         let _ = fs::remove_dir_all(&dir);
     }
 }

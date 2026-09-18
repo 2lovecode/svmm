@@ -1,3 +1,4 @@
-# SVMM on Windows must use the MSVC toolchain (GNU lacks dlltool for Tauri/WebView2).
+# Host toolchain follows the machine. On Windows, use the MSVC host
+# (rustup's default); GNU lacks dlltool for Tauri/WebView2.
 [toolchain]
-channel = "stable-x86_64-pc-windows-msvc"
+channel = "stable"

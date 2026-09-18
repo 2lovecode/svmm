@@ -120,9 +120,9 @@ export const useProfilesStore = defineStore("profiles", () => {
       lastReport.value = report;
       selectedId.value = id;
       const parts = [
-        `已应用配置`,
-        `启用 ${report.enabled}`,
-        `禁用 ${report.disabled}`,
+        `已应用方案`,
+        `部署 ${report.deployed}`,
+        `移除 ${report.removed}`,
       ];
       if (report.errors.length > 0) {
         parts.push(`${report.errors.length} 个问题`);

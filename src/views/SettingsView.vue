@@ -7,6 +7,13 @@ import { useSettingsStore } from "../stores/settings";
 const router = useRouter();
 const store = useSettingsStore();
 
+const isMac =
+  navigator.userAgent.includes("Macintosh") || navigator.platform.startsWith("Mac");
+const smapiFileName = isMac ? "StardewModdingAPI" : "StardewModdingAPI.exe";
+const gamePathPlaceholder = isMac
+  ? "~/Library/Application Support/Steam/steamapps/common/Stardew Valley/Contents/MacOS"
+  : "例如 C:\\Program Files (x86)\\Steam\\steamapps\\common\\Stardew Valley";
+
 onMounted(async () => {
   try {
     await store.load();
@@ -26,6 +33,11 @@ async function pickDirectory(field: "gamePath" | "modsPath") {
   }
 }
 
+function onProxyInput(event: Event) {
+  const value = (event.target as HTMLInputElement).value.trim();
+  store.patch({ downloadProxy: value.length > 0 ? value : null });
+}
+
 function onPathInput(
   field: "gamePath" | "smapiPath" | "modsPath",
   event: Event,
@@ -38,8 +50,10 @@ async function pickSmapiFile() {
   const selected = await open({
     directory: false,
     multiple: false,
-    title: "选择 StardewModdingAPI.exe",
-    filters: [{ name: "可执行文件", extensions: ["exe"] }],
+    title: `选择 ${smapiFileName}`,
+    ...(isMac
+      ? {}
+      : { filters: [{ name: "可执行文件", extensions: ["exe"] }] }),
   });
   if (typeof selected === "string") {
     store.patch({ smapiPath: selected });
@@ -115,65 +129,89 @@ async function onOpenLogDir() {
     </header>
 
     <main class="settings-body">
-      <p class="hint">配置星露谷物语、SMAPI 与 Mods 路径。留空时将尝试自动推导。</p>
+      <section class="settings-card">
+        <h2>游戏</h2>
+        <p class="hint">
+          配置星露谷物语、SMAPI 与 Mods 路径。留空时将尝试自动推导。
+          <template v-if="isMac">
+            macOS 上请指向 Contents/MacOS，或直接选择游戏文件夹 / .app。
+          </template>
+        </p>
 
-      <div class="field">
-        <label for="game-path">游戏目录</label>
-        <div class="field-row">
-          <input
-            id="game-path"
-            :value="store.settings.gamePath ?? ''"
-            type="text"
-            placeholder="例如 C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley"
-            @input="onPathInput('gamePath', $event)"
-          />
-          <button type="button" class="btn" @click="pickDirectory('gamePath')">浏览…</button>
+        <div class="field">
+          <label for="game-path">游戏目录</label>
+          <div class="field-row">
+            <input
+              id="game-path"
+              :value="store.settings.gamePath ?? ''"
+              type="text"
+              :placeholder="gamePathPlaceholder"
+              @input="onPathInput('gamePath', $event)"
+            />
+            <button type="button" class="btn" @click="pickDirectory('gamePath')">浏览…</button>
+          </div>
         </div>
-      </div>
 
-      <div class="field">
-        <label for="smapi-path">SMAPI 路径</label>
-        <div class="field-row">
-          <input
-            id="smapi-path"
-            :value="store.settings.smapiPath ?? ''"
-            type="text"
-            placeholder="StardewModdingAPI.exe 完整路径"
-            @input="onPathInput('smapiPath', $event)"
-          />
-          <button type="button" class="btn" @click="pickSmapiFile">浏览…</button>
+        <div class="field">
+          <label for="smapi-path">SMAPI 路径</label>
+          <div class="field-row">
+            <input
+              id="smapi-path"
+              :value="store.settings.smapiPath ?? ''"
+              type="text"
+              :placeholder="`${smapiFileName} 完整路径`"
+              @input="onPathInput('smapiPath', $event)"
+            />
+            <button type="button" class="btn" @click="pickSmapiFile">浏览…</button>
+          </div>
         </div>
-      </div>
 
-      <div class="field">
-        <label for="mods-path">Mods 目录</label>
-        <div class="field-row">
-          <input
-            id="mods-path"
-            :value="store.settings.modsPath ?? ''"
-            type="text"
-            placeholder="默认：游戏目录下的 Mods"
-            @input="onPathInput('modsPath', $event)"
-          />
-          <button type="button" class="btn" @click="pickDirectory('modsPath')">浏览…</button>
+        <div class="field">
+          <label for="mods-path">Mods 目录</label>
+          <div class="field-row">
+            <input
+              id="mods-path"
+              :value="store.settings.modsPath ?? ''"
+              type="text"
+              placeholder="默认：游戏目录下的 Mods"
+              @input="onPathInput('modsPath', $event)"
+            />
+            <button type="button" class="btn" @click="pickDirectory('modsPath')">浏览…</button>
+          </div>
         </div>
-      </div>
 
-      <div class="settings-actions">
-        <button type="button" class="btn" :disabled="store.loading" @click="onDiscover">
-          自动探测
-        </button>
-        <button
-          type="button"
-          class="btn btn-primary"
-          :disabled="store.saving || store.loading"
-          @click="onSave"
-        >
-          {{ store.saving ? "保存中…" : "保存" }}
-        </button>
-      </div>
+        <div class="settings-actions">
+          <button type="button" class="btn" :disabled="store.loading" @click="onDiscover">
+            自动探测
+          </button>
+        </div>
+      </section>
 
-      <section class="settings-section">
+      <section class="settings-card">
+        <h2>下载</h2>
+        <p class="hint">用于下载 SMAPI 和 Nexus 模组。</p>
+
+        <div class="field">
+          <label for="download-proxy">代理地址</label>
+          <input
+            id="download-proxy"
+            class="text-input mono"
+            :value="store.settings.downloadProxy ?? ''"
+            type="text"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder="留空则使用系统代理"
+            @input="onProxyInput"
+          />
+          <p class="field-note">
+            例如 <code>http://127.0.0.1:7890</code> 或
+            <code>socks5://127.0.0.1:7890</code>。只写
+            <code>127.0.0.1:7890</code> 时按 HTTP 代理处理。
+          </p>
+        </div>
+      </section>
+
+      <section class="settings-card">
         <h2>外观与行为</h2>
 
         <div class="field">
@@ -216,10 +254,22 @@ async function onOpenLogDir() {
         </div>
       </section>
 
-      <section class="settings-section">
+      <div class="settings-savebar">
+        <p class="field-note">路径、代理和外观修改后需要保存。</p>
+        <button
+          type="button"
+          class="btn btn-primary"
+          :disabled="store.saving || store.loading"
+          @click="onSave"
+        >
+          {{ store.saving ? "保存中…" : "保存" }}
+        </button>
+      </div>
+
+      <section class="settings-card">
         <h2>Nexus Mods</h2>
         <p class="hint">
-          API 密钥保存在系统凭据存储中，不会写入设置文件。
+          API 密钥不会写入设置文件，只保存在本机应用数据目录中。
           状态：
           <span
             :class="
@@ -238,6 +288,7 @@ async function onOpenLogDir() {
             <input
               id="nexus-key"
               v-model="store.nexusKeyInput"
+              class="mono"
               type="password"
               autocomplete="off"
               placeholder="粘贴 Nexus API Key"

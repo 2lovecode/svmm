@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::domain::game;
 use crate::domain::mods::scan;
-use crate::domain::nexus::{self, NexusUser};
+use crate::domain::nexus::{self, browse, NexusUser};
 use crate::error::{AppError, AppResult};
 use crate::storage::log_util::log_result;
 use crate::storage::{secure_key, settings};
@@ -60,4 +60,36 @@ pub async fn nexus_update_mod(folder_path: String) -> AppResult<scan::ModEntry> 
     tauri::async_runtime::spawn_blocking(move || nexus_update_mod_blocking(folder_path))
         .await
         .map_err(|_| AppError::new("task_join_failed", "后台任务失败"))?
+}
+
+#[tauri::command]
+pub async fn nexus_list_categories() -> AppResult<Vec<browse::NexusCategory>> {
+    tauri::async_runtime::spawn_blocking(browse::list_categories)
+        .await
+        .map_err(|_| AppError::new("task_join_failed", "后台任务失败"))?
+}
+
+#[tauri::command]
+pub async fn nexus_browse_mods(
+    page: u32,
+    category: Option<String>,
+    keyword: Option<String>,
+    mod_id: Option<u32>,
+) -> AppResult<browse::NexusBrowsePage> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut page = browse::browse_query(page, category.as_deref(), keyword.as_deref(), mod_id)?;
+        let library = crate::domain::library::list_mods(
+            &crate::storage::paths::library_dir(),
+            crate::domain::library::LibraryQuery::default(),
+        )
+        .unwrap_or_default();
+        for item in &mut page.mods {
+            item.library_status =
+                crate::domain::library::nexus_library_status(&library, item.mod_id, &item.version)
+                    .to_string();
+        }
+        Ok(page)
+    })
+    .await
+    .map_err(|_| AppError::new("task_join_failed", "后台任务失败"))?
 }

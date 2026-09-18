@@ -1,6 +1,9 @@
 pub mod game;
+pub mod http;
+pub mod library;
 pub mod mods;
 pub mod nexus;
 pub mod profiles;
 pub mod smapi;
+pub mod smapi_install;
 pub mod smapi_update;

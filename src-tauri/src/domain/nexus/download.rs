@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::domain::mods::enable;
 use crate::domain::mods::install::install_mod_zip;
@@ -187,10 +187,7 @@ pub fn fetch_download_link(nxm: &NxmUrl) -> AppResult<String> {
         url.push_str(&qs.join("&"));
     }
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|_| AppError::new("nexus_client_failed", "无法创建 Nexus HTTP 客户端"))?;
+    let client = crate::domain::http::blocking_client(Duration::from_secs(REQUEST_TIMEOUT_SECS))?;
 
     let mut request = client.get(&url);
     for (name, value) in &headers {
@@ -231,10 +228,7 @@ pub fn fetch_premium_download_link(mod_id: u32, file_id: u64) -> AppResult<Strin
     let headers = build_nexus_headers(&api_key);
     let url = download_link_url(mod_id, file_id);
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|_| AppError::new("nexus_client_failed", "无法创建 Nexus HTTP 客户端"))?;
+    let client = crate::domain::http::blocking_client(Duration::from_secs(REQUEST_TIMEOUT_SECS))?;
 
     let mut request = client.get(&url);
     for (name, value) in &headers {
@@ -309,11 +303,7 @@ pub fn download_url_to_temp_zip(cdn_url: &str) -> AppResult<PathBuf> {
 
     assert_https_download_url(cdn_url)?;
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .map_err(|_| AppError::new("nexus_client_failed", "无法创建下载客户端"))?;
+    let client = crate::domain::http::blocking_client(Duration::from_secs(REQUEST_TIMEOUT_SECS))?;
 
     let mut response = client
         .get(cdn_url)
@@ -378,13 +368,35 @@ pub fn download_url_to_temp_zip(cdn_url: &str) -> AppResult<PathBuf> {
     Ok(path)
 }
 
-pub fn handle_nxm_url(url: &str, mods_path: &Path) -> AppResult<ModEntry> {
+pub fn handle_nxm_url(
+    url: &str,
+    library_root: &Path,
+) -> AppResult<crate::domain::library::LibraryMod> {
     let nxm = parse_nxm_url(url)?;
     let cdn = fetch_download_link(&nxm)?;
     let zip_path = download_url_to_temp_zip(&cdn)?;
-    let result = install_mod_zip(&zip_path, mods_path);
+    let result = crate::domain::library::import_zip(
+        &zip_path,
+        library_root,
+        crate::domain::library::ImportMeta {
+            nexus_mod_id: u32::try_from(nxm.mod_id).ok(),
+            nexus_file_id: Some(nxm.file_id),
+            category: None,
+        },
+    );
     let _ = std::fs::remove_file(&zip_path);
     result
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NexusFileInfo {
+    pub file_id: u64,
+    pub name: String,
+    pub version: String,
+    pub category_name: String,
+    pub uploaded_timestamp: i64,
+    pub is_main: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -395,6 +407,10 @@ struct FilesResponse {
 #[derive(Debug, Deserialize)]
 struct NexusFileMeta {
     file_id: u64,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    version: String,
     #[serde(default)]
     category_id: i64,
     #[serde(default)]
@@ -420,25 +436,18 @@ pub fn pick_newest_main_file_id(files_json: &str) -> AppResult<u64> {
         .ok_or_else(|| AppError::new("nexus_no_main_file", "未找到可用的主文件"))
 }
 
-fn fetch_newest_main_file_id(mod_id: u32) -> AppResult<u64> {
+fn fetch_files_body(mod_id: u32) -> AppResult<String> {
     let api_key = secure_key::get_nexus_api_key()?;
     let headers = build_nexus_headers(&api_key);
     let url = mod_files_url(mod_id);
-
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|_| AppError::new("nexus_client_failed", "无法创建 Nexus HTTP 客户端"))?;
-
+    let client = crate::domain::http::blocking_client(Duration::from_secs(REQUEST_TIMEOUT_SECS))?;
     let mut request = client.get(&url);
     for (name, value) in &headers {
         request = request.header(name.as_str(), value.as_str());
     }
-
     let response = request
         .send()
         .map_err(|_| AppError::new("nexus_files_failed", "无法获取 Nexus 文件列表"))?;
-
     let status = response.status();
     if status.as_u16() == 401 || status.as_u16() == 403 {
         return Err(AppError::new(
@@ -452,11 +461,42 @@ fn fetch_newest_main_file_id(mod_id: u32) -> AppResult<u64> {
             format!("获取文件列表失败（HTTP {}）", status.as_u16()),
         ));
     }
-
-    let body = response
+    response
         .text()
-        .map_err(|_| AppError::new("nexus_files_failed", "无法读取文件列表响应"))?;
-    pick_newest_main_file_id(&body)
+        .map_err(|_| AppError::new("nexus_files_failed", "无法读取文件列表响应"))
+}
+
+pub fn parse_file_list(files_json: &str) -> AppResult<Vec<NexusFileInfo>> {
+    let parsed: FilesResponse = serde_json::from_str(files_json)
+        .map_err(|_| AppError::new("nexus_files_parse_failed", "无法解析 Nexus 文件列表"))?;
+    let mut files: Vec<NexusFileInfo> = parsed
+        .files
+        .into_iter()
+        .map(|f| NexusFileInfo {
+            is_main: is_main_file(&f),
+            file_id: f.file_id,
+            name: f.name,
+            version: f.version,
+            category_name: f.category_name,
+            uploaded_timestamp: f.uploaded_timestamp,
+        })
+        .collect();
+    files.sort_by(|a, b| b.uploaded_timestamp.cmp(&a.uploaded_timestamp));
+    Ok(files)
+}
+
+pub fn list_nexus_files(mod_id: u32) -> AppResult<Vec<NexusFileInfo>> {
+    parse_file_list(&fetch_files_body(mod_id)?)
+}
+
+fn fetch_newest_main_file_id(mod_id: u32) -> AppResult<u64> {
+    let files = list_nexus_files(mod_id)?;
+    files
+        .into_iter()
+        .filter(|f| f.is_main)
+        .max_by_key(|f| f.uploaded_timestamp)
+        .map(|f| f.file_id)
+        .ok_or_else(|| AppError::new("nexus_no_main_file", "未找到可用的主文件"))
 }
 
 fn sanitize_backup_id(id: &str) -> String {
@@ -509,11 +549,8 @@ pub fn merge_update_and_restore_errors(update_err: AppError, restore_err: AppErr
         Some(d) if !d.is_empty() => format!("{}（{}）", restore_err.message, d),
         _ => restore_err.message.clone(),
     };
-    AppError::new(
-        "nexus_update_restore_failed",
-        "更新失败且无法恢复备份",
-    )
-    .with_detail(format!("更新错误：{update_part}；恢复错误：{restore_part}"))
+    AppError::new("nexus_update_restore_failed", "更新失败且无法恢复备份")
+        .with_detail(format!("更新错误：{update_part}；恢复错误：{restore_part}"))
 }
 
 /// After install, re-apply previous enabled/disabled folder naming.
@@ -530,12 +567,8 @@ pub fn preserve_enabled_state(
 
 /// Download latest Nexus main file and replace the local mod folder (with backup).
 pub fn update_mod_from_nexus(mod_entry: &ModEntry, mods_path: &Path) -> AppResult<ModEntry> {
-    let nexus_id = parse_nexus_mod_id(&mod_entry.update_keys).ok_or_else(|| {
-        AppError::new(
-            "nexus_id_missing",
-            "该模组没有 Nexus 更新键（Nexus:ID）",
-        )
-    })?;
+    let nexus_id = parse_nexus_mod_id(&mod_entry.update_keys)
+        .ok_or_else(|| AppError::new("nexus_id_missing", "该模组没有 Nexus 更新键（Nexus:ID）"))?;
 
     let file_id = fetch_newest_main_file_id(nexus_id)?;
     let cdn = fetch_premium_download_link(nexus_id, file_id)?;
@@ -553,17 +586,15 @@ pub fn update_mod_from_nexus(mod_entry: &ModEntry, mods_path: &Path) -> AppResul
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let backup_name = format!(
-        ".svmm-backup-{}-{}",
-        sanitize_backup_id(&mod_entry.id),
-        ts
-    );
+    let backup_name = format!(".svmm-backup-{}-{}", sanitize_backup_id(&mod_entry.id), ts);
     let backup_path = mods_path.join(&backup_name);
 
     if let Err(e) = fs::rename(&original, &backup_path) {
         let _ = fs::remove_file(&zip_path);
-        return Err(AppError::new("nexus_update_backup_failed", "无法备份现有模组目录")
-            .with_detail(e.to_string()));
+        return Err(
+            AppError::new("nexus_update_backup_failed", "无法备份现有模组目录")
+                .with_detail(e.to_string()),
+        );
     }
 
     let install_result = install_mod_zip(&zip_path, mods_path);

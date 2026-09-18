@@ -104,7 +104,8 @@ pub fn safe_extract_zip(zip_path: &Path, dest_mods: &Path) -> AppResult<PathBuf>
                 if !dir_name.is_empty() {
                     let dir = validate_zip_entry_path(dir_name, &staging)?;
                     fs::create_dir_all(&dir).map_err(|e| {
-                        AppError::new("zip_extract_failed", "无法创建目录").with_detail(e.to_string())
+                        AppError::new("zip_extract_failed", "无法创建目录")
+                            .with_detail(e.to_string())
                     })?;
                 }
                 continue;
@@ -181,10 +182,7 @@ fn find_mod_root(staging: &Path) -> AppResult<PathBuf> {
         }
     }
 
-    Err(AppError::new(
-        "zip_no_mod",
-        "压缩包中未找到有效的模组目录",
-    ))
+    Err(AppError::new("zip_no_mod", "压缩包中未找到有效的模组目录"))
 }
 
 fn find_manifest_in_tree(dir: &Path) -> Option<PathBuf> {

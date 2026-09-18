@@ -2,11 +2,18 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   ApplyReport,
   GamePaths,
+  LibraryMod,
   ModEntry,
+  NexusBrowsePage,
+  NexusCategory,
+  NexusFileInfo,
   NexusStatus,
   NexusUser,
   Profile,
+  ProfileState,
   Settings,
+  SmapiInstallReport,
+  SmapiStatus,
   UpdateInfo,
 } from "../types/mod";
 
@@ -23,6 +30,14 @@ export function setModEnabled(
 
 export function launchSmapi(): Promise<void> {
   return invoke<void>("launch_smapi");
+}
+
+export function smapiStatus(): Promise<SmapiStatus> {
+  return invoke<SmapiStatus>("smapi_status");
+}
+
+export function installSmapi(): Promise<SmapiInstallReport> {
+  return invoke<SmapiInstallReport>("install_smapi");
 }
 
 export function getSettings(): Promise<Settings> {
@@ -43,9 +58,9 @@ export function listProfiles(): Promise<Profile[]> {
 
 export function createProfile(
   name: string,
-  enabledModIds?: string[] | null,
+  modIds?: string[] | null,
 ): Promise<Profile> {
-  return invoke<Profile>("create_profile", { name, enabledModIds: enabledModIds ?? null });
+  return invoke<Profile>("create_profile", { name, modIds: modIds ?? null });
 }
 
 export function renameProfile(id: string, name: string): Promise<Profile> {
@@ -58,6 +73,60 @@ export function deleteProfile(id: string): Promise<void> {
 
 export function applyProfile(id: string): Promise<ApplyReport> {
   return invoke<ApplyReport>("apply_profile", { id });
+}
+
+export function addProfileMod(id: string, modId: string): Promise<Profile> {
+  return invoke<Profile>("add_profile_mod", { id, modId });
+}
+
+export function removeProfileMod(id: string, modId: string): Promise<Profile> {
+  return invoke<Profile>("remove_profile_mod", { id, modId });
+}
+
+export function profileDetail(id: string): Promise<ProfileState> {
+  return invoke<ProfileState>("profile_detail", { id });
+}
+
+export function homeState(): Promise<ProfileState> {
+  return invoke<ProfileState>("home_state");
+}
+
+export function listLibrary(filter?: {
+  category?: string | null;
+  id?: string | null;
+  keyword?: string | null;
+}): Promise<LibraryMod[]> {
+  return invoke<LibraryMod[]>("list_library", {
+    category: filter?.category ?? null,
+    id: filter?.id ?? null,
+    keyword: filter?.keyword ?? null,
+  });
+}
+
+export function deleteLibraryMod(id: string): Promise<void> {
+  return invoke<void>("delete_library_mod", { id });
+}
+
+export function libraryAddFromNexus(
+  modId: number,
+  category?: string | null,
+): Promise<LibraryMod> {
+  return invoke<LibraryMod>("library_add_from_nexus", {
+    modId,
+    category: category ?? null,
+  });
+}
+
+export function libraryUpdate(id: string): Promise<LibraryMod> {
+  return invoke<LibraryMod>("library_update", { id });
+}
+
+export function libraryNexusFiles(id: string): Promise<NexusFileInfo[]> {
+  return invoke<NexusFileInfo[]>("library_nexus_files", { id });
+}
+
+export function libraryDowngrade(id: string, fileId: number): Promise<LibraryMod> {
+  return invoke<LibraryMod>("library_downgrade", { id, fileId });
 }
 
 export function snapshotCurrentAsProfile(name: string): Promise<Profile> {
@@ -98,12 +167,30 @@ export function nexusUpdateMod(folderPath: string): Promise<ModEntry> {
   return invoke<ModEntry>("nexus_update_mod", { folderPath });
 }
 
-export function installModZip(path: string): Promise<ModEntry> {
-  return invoke<ModEntry>("install_mod_zip", { path });
+export function nexusCategories(): Promise<NexusCategory[]> {
+  return invoke<NexusCategory[]>("nexus_list_categories");
 }
 
-export function installFromNxm(url: string): Promise<ModEntry> {
-  return invoke<ModEntry>("install_from_nxm", { url });
+export function nexusBrowseMods(
+  page: number,
+  category: string | null,
+  keyword: string | null,
+  modId: number | null,
+): Promise<NexusBrowsePage> {
+  return invoke<NexusBrowsePage>("nexus_browse_mods", {
+    page,
+    category,
+    keyword,
+    modId,
+  });
+}
+
+export function installModZip(path: string): Promise<LibraryMod> {
+  return invoke<LibraryMod>("install_mod_zip", { path });
+}
+
+export function installFromNxm(url: string): Promise<LibraryMod> {
+  return invoke<LibraryMod>("install_from_nxm", { url });
 }
 
 export function openLogDir(): Promise<void> {

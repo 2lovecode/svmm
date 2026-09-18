@@ -1,4 +1,3 @@
-use std::env;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -14,9 +13,62 @@ pub struct GamePaths {
     pub mods_path: PathBuf,
 }
 
+/// SMAPI launcher filename. Windows ships an `.exe`; macOS/Linux do not.
+pub fn smapi_file_name() -> &'static str {
+    #[cfg(windows)]
+    {
+        "StardewModdingAPI.exe"
+    }
+    #[cfg(not(windows))]
+    {
+        "StardewModdingAPI"
+    }
+}
+
+/// On macOS, accept the Steam/GOG parent folder or `.app` and resolve `Contents/MacOS`.
+pub fn normalize_game_dir(path: PathBuf) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        normalize_macos_game_dir(path)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        path
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn normalize_macos_game_dir(path: PathBuf) -> PathBuf {
+    for candidate in [path.join("Contents").join("MacOS"), path.join("MacOS")] {
+        if candidate.is_dir() {
+            return candidate;
+        }
+    }
+
+    if let Ok(entries) = std::fs::read_dir(&path) {
+        for entry in entries.flatten() {
+            let child = entry.path();
+            let is_app = child
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("app"));
+            if !is_app {
+                continue;
+            }
+            let macos = child.join("Contents").join("MacOS");
+            if macos.is_dir() {
+                return macos;
+            }
+        }
+    }
+
+    path
+}
+
 impl GamePaths {
     pub fn from_game_dir(game_path: PathBuf) -> Self {
-        let smapi_path = game_path.join("StardewModdingAPI.exe");
+        let game_path = normalize_game_dir(game_path);
+        let smapi_path = game_path.join(smapi_file_name());
         let mods_path = game_path.join("Mods");
         Self {
             game_path,
@@ -63,25 +115,56 @@ fn candidate_game_dirs_from(
     }
 
     if let Some(pf86) = program_files_x86 {
-        candidates.push(
-            pf86.join("GOG Galaxy")
-                .join("Games")
-                .join("Stardew Valley"),
-        );
+        candidates.push(pf86.join("GOG Galaxy").join("Games").join("Stardew Valley"));
     }
 
     candidates
 }
 
+/// Steam (user Library) then GOG (`/Applications/*.app`).
+fn candidate_game_dirs_macos(home: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(home) = home {
+        candidates.push(
+            home.join("Library")
+                .join("Application Support")
+                .join("Steam")
+                .join("steamapps")
+                .join("common")
+                .join("Stardew Valley")
+                .join("Contents")
+                .join("MacOS"),
+        );
+    }
+
+    candidates.push(
+        PathBuf::from("/Applications")
+            .join("Stardew Valley.app")
+            .join("Contents")
+            .join("MacOS"),
+    );
+
+    candidates
+}
+
+#[cfg(windows)]
 fn candidate_game_dirs() -> Vec<PathBuf> {
-    let pf86 = env::var_os("ProgramFiles(x86)").map(PathBuf::from);
-    let pf = env::var_os("ProgramFiles").map(PathBuf::from);
-    let local = env::var_os("LOCALAPPDATA").map(PathBuf::from);
-    candidate_game_dirs_from(
-        pf86.as_deref(),
-        pf.as_deref(),
-        local.as_deref(),
-    )
+    let pf86 = std::env::var_os("ProgramFiles(x86)").map(PathBuf::from);
+    let pf = std::env::var_os("ProgramFiles").map(PathBuf::from);
+    let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    candidate_game_dirs_from(pf86.as_deref(), pf.as_deref(), local.as_deref())
+}
+
+#[cfg(target_os = "macos")]
+fn candidate_game_dirs() -> Vec<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    candidate_game_dirs_macos(home.as_deref())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn candidate_game_dirs() -> Vec<PathBuf> {
+    Vec::new()
 }
 
 pub fn discover_game_paths() -> AppResult<Option<GamePaths>> {
@@ -100,6 +183,7 @@ pub fn resolve_paths(settings: &Settings) -> AppResult<GamePaths> {
         .game_path
         .clone()
         .or_else(|| discovered.as_ref().map(|d| d.game_path.clone()))
+        .map(normalize_game_dir)
         .ok_or_else(|| {
             AppError::new(
                 "game_path_not_found",
@@ -110,7 +194,7 @@ pub fn resolve_paths(settings: &Settings) -> AppResult<GamePaths> {
     let smapi_path = settings
         .smapi_path
         .clone()
-        .unwrap_or_else(|| game_path.join("StardewModdingAPI.exe"));
+        .unwrap_or_else(|| game_path.join(smapi_file_name()));
 
     let mods_path = settings
         .mods_path
@@ -128,7 +212,7 @@ pub fn validate_paths(paths: &GamePaths) -> AppResult<()> {
     if !paths.smapi_path.is_file() {
         return Err(AppError::new(
             "smapi_missing",
-            "未找到 StardewModdingAPI.exe，请确认已安装 SMAPI",
+            format!("未找到 {}，请确认已安装 SMAPI", smapi_file_name()),
         )
         .with_detail(paths.smapi_path.display().to_string()));
     }
@@ -159,7 +243,7 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("Mods")).unwrap();
-        fs::write(root.join("StardewModdingAPI.exe"), b"").unwrap();
+        fs::write(root.join(smapi_file_name()), b"").unwrap();
         root
     }
 
@@ -168,7 +252,7 @@ mod tests {
         let root = temp_game_root();
         let paths = GamePaths {
             game_path: root.clone(),
-            smapi_path: root.join("StardewModdingAPI.exe"),
+            smapi_path: root.join(smapi_file_name()),
             mods_path: root.join("Mods"),
         };
         assert!(validate_paths(&paths).is_ok());
@@ -178,7 +262,7 @@ mod tests {
     #[test]
     fn validate_fails_without_smapi() {
         let root = temp_game_root();
-        fs::remove_file(root.join("StardewModdingAPI.exe")).unwrap();
+        fs::remove_file(root.join(smapi_file_name())).unwrap();
         let paths = GamePaths::from_game_dir(root.clone());
         let err = validate_paths(&paths).unwrap_err();
         assert_eq!(err.code, "smapi_missing");
@@ -219,7 +303,7 @@ mod tests {
             ..Settings::default()
         };
         let paths = resolve_paths(&settings).unwrap();
-        assert_eq!(paths.smapi_path, root.join("StardewModdingAPI.exe"));
+        assert_eq!(paths.smapi_path, root.join(smapi_file_name()));
         assert_eq!(paths.mods_path, root.join("Mods"));
         let _ = fs::remove_dir_all(&root);
     }
@@ -250,5 +334,57 @@ mod tests {
             })
             .collect();
         assert_eq!(labels, vec!["steam_x86", "steam_pf", "xbox", "gog"]);
+    }
+
+    #[test]
+    fn macos_candidates_are_steam_then_gog() {
+        let home = PathBuf::from("/Users/example");
+        let dirs = candidate_game_dirs_macos(Some(&home));
+        assert_eq!(
+            dirs[0],
+            home.join("Library")
+                .join("Application Support")
+                .join("Steam")
+                .join("steamapps")
+                .join("common")
+                .join("Stardew Valley")
+                .join("Contents")
+                .join("MacOS")
+        );
+        assert_eq!(
+            dirs[1],
+            PathBuf::from("/Applications")
+                .join("Stardew Valley.app")
+                .join("Contents")
+                .join("MacOS")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn normalize_descends_into_contents_macos() {
+        let root = std::env::temp_dir().join(format!(
+            "svmm-macos-game-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let macos = root.join("Contents").join("MacOS");
+        fs::create_dir_all(&macos).unwrap();
+        assert_eq!(normalize_game_dir(root.clone()), macos);
+        assert_eq!(normalize_game_dir(macos.clone()), macos);
+
+        let bundle_root = root.join("bundle");
+        let app_macos = bundle_root
+            .join("Stardew Valley.app")
+            .join("Contents")
+            .join("MacOS");
+        fs::create_dir_all(&app_macos).unwrap();
+        assert_eq!(normalize_game_dir(bundle_root), app_macos);
+
+        let _ = fs::remove_dir_all(&root);
     }
 }

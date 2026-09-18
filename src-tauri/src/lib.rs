@@ -4,17 +4,22 @@ mod error;
 mod storage;
 
 use commands::game::{discover_paths, get_settings, save_settings, validate_paths};
+use commands::library::{
+    delete_library_mod, home_state, library_add_from_nexus, library_downgrade, library_nexus_files,
+    library_update, list_library, profile_state,
+};
 use commands::mods::{
     install_from_nxm, install_from_nxm_blocking, install_mod_zip, scan_mods, set_mod_enabled,
 };
 use commands::nexus::{
-    nexus_clear_key, nexus_endorse, nexus_set_key, nexus_status, nexus_update_mod, nexus_validate,
+    nexus_browse_mods, nexus_clear_key, nexus_endorse, nexus_list_categories, nexus_set_key,
+    nexus_status, nexus_update_mod, nexus_validate,
 };
 use commands::profiles::{
-    apply_profile, create_profile, delete_profile, list_profiles, rename_profile,
-    snapshot_current_as_profile,
+    add_profile_mod, apply_profile, create_profile, delete_profile, list_profiles, profile_detail,
+    remove_profile_mod, rename_profile, snapshot_current_as_profile,
 };
-use commands::smapi::launch_smapi;
+use commands::smapi::{install_smapi, launch_smapi, smapi_status};
 use commands::updates::check_mod_updates;
 use storage::log_util::open_log_dir;
 use tauri::Emitter;
@@ -40,8 +45,8 @@ fn process_nxm_url(app: &tauri::AppHandle, url: &str) {
     let url = url.to_string();
     let hint_for_err = safe_hint;
     tauri::async_runtime::spawn(async move {
-        let outcome = tauri::async_runtime::spawn_blocking(move || install_from_nxm_blocking(url))
-            .await;
+        let outcome =
+            tauri::async_runtime::spawn_blocking(move || install_from_nxm_blocking(url)).await;
         match outcome {
             Ok(Ok(entry)) => {
                 let _ = handle.emit(
@@ -49,7 +54,7 @@ fn process_nxm_url(app: &tauri::AppHandle, url: &str) {
                     serde_json::json!({
                         "ok": true,
                         "mod": entry,
-                        "message": format!("已通过 NXM 安装：{}", entry.name),
+                        "message": format!("已加入本地库：{}", entry.name),
                     }),
                 );
             }
@@ -133,12 +138,25 @@ pub fn run() {
             install_mod_zip,
             install_from_nxm,
             launch_smapi,
+            smapi_status,
+            install_smapi,
             list_profiles,
             create_profile,
             rename_profile,
             delete_profile,
+            add_profile_mod,
+            remove_profile_mod,
             apply_profile,
+            profile_detail,
             snapshot_current_as_profile,
+            list_library,
+            delete_library_mod,
+            home_state,
+            profile_state,
+            library_add_from_nexus,
+            library_update,
+            library_nexus_files,
+            library_downgrade,
             check_mod_updates,
             nexus_set_key,
             nexus_clear_key,
@@ -146,6 +164,8 @@ pub fn run() {
             nexus_validate,
             nexus_endorse,
             nexus_update_mod,
+            nexus_list_categories,
+            nexus_browse_mods,
             open_log_dir
         ])
         .run(tauri::generate_context!())

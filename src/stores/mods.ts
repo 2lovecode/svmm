@@ -1,7 +1,8 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import * as api from "../api/tauri";
-import { formatAppError, type ModEntry, type UpdateInfo } from "../types/mod";
+import { formatAppError, type ModEntry, type SmapiInstallProgress, type UpdateInfo } from "../types/mod";
 
 function mergeUpdateStatus(current: string, updateStatus: string): string {
   if (
@@ -30,6 +31,10 @@ export const useModsStore = defineStore("mods", () => {
   const loading = ref(false);
   const checkingUpdates = ref(false);
   const launching = ref(false);
+  const installingSmapi = ref(false);
+  const smapiProgress = ref<SmapiInstallProgress | null>(null);
+  const smapiInstalled = ref<boolean | null>(null);
+  const gameFound = ref(false);
   const togglingPath = ref<string | null>(null);
   const error = ref<string | null>(null);
   const statusMessage = ref("就绪");
@@ -98,6 +103,58 @@ export const useModsStore = defineStore("mods", () => {
       throw e;
     } finally {
       togglingPath.value = null;
+    }
+  }
+
+  async function refreshSmapiStatus() {
+    try {
+      const status = await api.smapiStatus();
+      smapiInstalled.value = status.installed;
+      gameFound.value = status.gameFound;
+    } catch (e) {
+      error.value = formatAppError(e);
+    }
+  }
+
+  async function installSmapi() {
+    installingSmapi.value = true;
+    error.value = null;
+    smapiProgress.value = {
+      phase: "query",
+      message: "正在获取 SMAPI 版本…",
+      received: 0,
+      total: null,
+      percent: null,
+    };
+    statusMessage.value = smapiProgress.value.message;
+    let unlisten: UnlistenFn | null = null;
+    try {
+      unlisten = await listen<SmapiInstallProgress>("smapi-install-progress", (event) => {
+        smapiProgress.value = event.payload;
+        statusMessage.value = event.payload.message;
+      });
+    } catch {
+      unlisten = null;
+    }
+    try {
+      const report = await api.installSmapi();
+      smapiInstalled.value = true;
+      gameFound.value = true;
+      try {
+        await refresh();
+        statusMessage.value = `已安装 SMAPI ${report.version}`;
+      } catch {
+        statusMessage.value = `已安装 SMAPI ${report.version}，但模组列表刷新失败`;
+      }
+      return report;
+    } catch (e) {
+      error.value = formatAppError(e);
+      statusMessage.value = "SMAPI 安装失败";
+      throw e;
+    } finally {
+      if (unlisten) unlisten();
+      smapiProgress.value = null;
+      installingSmapi.value = false;
     }
   }
 
@@ -216,6 +273,10 @@ export const useModsStore = defineStore("mods", () => {
     loading,
     checkingUpdates,
     launching,
+    installingSmapi,
+    smapiProgress,
+    smapiInstalled,
+    gameFound,
     togglingPath,
     actionPath,
     error,
@@ -223,9 +284,11 @@ export const useModsStore = defineStore("mods", () => {
     enabledCount,
     totalCount,
     refresh,
+    refreshSmapiStatus,
     checkUpdates,
     toggle,
     launch,
+    installSmapi,
     installZip,
     installNxm,
     endorse,

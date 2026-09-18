@@ -111,7 +111,10 @@ fn map_fixture_entry(id: &str, entry: &FixtureModUpdate) -> UpdateInfo {
 }
 
 fn text_contains_unofficial(errors: &[String], metadata: &Value) -> bool {
-    if errors.iter().any(|e| e.to_ascii_lowercase().contains("unofficial")) {
+    if errors
+        .iter()
+        .any(|e| e.to_ascii_lowercase().contains("unofficial"))
+    {
         return true;
     }
     metadata
@@ -147,17 +150,15 @@ pub fn check_updates(mods: &[ModEntry]) -> AppResult<Vec<UpdateInfo>> {
     }
 
     let body = UpdateRequest { mods: request_mods };
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| AppError::new("update_check_failed", "无法创建 HTTP 客户端").with_detail(e.to_string()))?;
+    let client = crate::domain::http::blocking_client(Duration::from_secs(REQUEST_TIMEOUT_SECS))?;
 
     let response = client
         .post(SMAPI_UPDATE_URL)
         .json(&body)
         .send()
         .map_err(|e| {
-            AppError::new("update_check_failed", "检查更新失败（网络错误）").with_detail(e.to_string())
+            AppError::new("update_check_failed", "检查更新失败（网络错误）")
+                .with_detail(e.to_string())
         })?;
 
     if !response.status().is_success() {
@@ -261,11 +262,11 @@ mod tests {
             merge_update_status("missing_manifest", "update_available"),
             "missing_manifest"
         );
-        assert_eq!(
-            merge_update_status("incompatible", "ok"),
-            "incompatible"
-        );
+        assert_eq!(merge_update_status("incompatible", "ok"), "incompatible");
         assert_eq!(merge_update_status("missing_manifest", "broken"), "broken");
-        assert_eq!(merge_update_status("ok", "update_available"), "update_available");
+        assert_eq!(
+            merge_update_status("ok", "update_available"),
+            "update_available"
+        );
     }
 }

@@ -29,7 +29,8 @@ pub fn list_profiles_from(dir: &Path) -> AppResult<Vec<Profile>> {
     let mut profiles = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|e| {
-            AppError::new("profiles_read_failed", "无法读取 profiles 目录").with_detail(e.to_string())
+            AppError::new("profiles_read_failed", "无法读取 profiles 目录")
+                .with_detail(e.to_string())
         })?;
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
@@ -53,8 +54,9 @@ pub fn load_profile_from(path: &Path) -> AppResult<Profile> {
 pub fn load_profile_by_id_from(dir: &Path, id: &str) -> AppResult<Profile> {
     let path = profile_file_path(dir, id);
     if !path.exists() {
-        return Err(AppError::new("profile_not_found", "未找到指定 profile")
-            .with_detail(id.to_string()));
+        return Err(
+            AppError::new("profile_not_found", "未找到指定 profile").with_detail(id.to_string())
+        );
     }
     load_profile_from(&path)
 }
@@ -73,8 +75,9 @@ pub fn save_profile_to(dir: &Path, profile: &Profile) -> AppResult<()> {
 pub fn delete_profile_from(dir: &Path, id: &str) -> AppResult<()> {
     let path = profile_file_path(dir, id);
     if !path.exists() {
-        return Err(AppError::new("profile_not_found", "未找到指定 profile")
-            .with_detail(id.to_string()));
+        return Err(
+            AppError::new("profile_not_found", "未找到指定 profile").with_detail(id.to_string())
+        );
     }
     fs::remove_file(&path).map_err(|e| {
         AppError::new("profile_delete_failed", "无法删除 profile 文件").with_detail(e.to_string())
@@ -93,10 +96,10 @@ pub fn delete_profile(id: &str) -> AppResult<()> {
     delete_profile_from(&profiles_dir(), id)
 }
 
-/// If no profiles exist, create a `default` snapshot from `enabled_mod_ids`.
+/// If no profiles exist, create a `default` group from `mod_ids`.
 pub fn ensure_default_profile(
     dir: &Path,
-    enabled_mod_ids: Vec<String>,
+    mod_ids: Vec<String>,
     now_iso: &str,
 ) -> AppResult<Vec<Profile>> {
     ensure_profiles_dir_at(dir)?;
@@ -106,10 +109,10 @@ pub fn ensure_default_profile(
     }
     let profile = Profile {
         id: "default".into(),
-        name: "default".into(),
+        name: "默认方案".into(),
         created_at: now_iso.to_string(),
         updated_at: now_iso.to_string(),
-        enabled_mod_ids,
+        mod_ids,
     };
     save_profile_to(dir, &profile)?;
     Ok(vec![profile])
@@ -137,15 +140,15 @@ mod tests {
     #[test]
     fn ensure_default_creates_when_empty() {
         let dir = temp_dir();
-        let list = ensure_default_profile(&dir, vec!["A".into(), "B".into()], "2026-01-01T00:00:00Z")
-            .unwrap();
+        let list =
+            ensure_default_profile(&dir, vec!["A".into(), "B".into()], "2026-01-01T00:00:00Z")
+                .unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, "default");
-        assert_eq!(list[0].enabled_mod_ids, vec!["A".to_string(), "B".to_string()]);
-        let again =
-            ensure_default_profile(&dir, vec!["C".into()], "2026-01-02T00:00:00Z").unwrap();
+        assert_eq!(list[0].mod_ids, vec!["A".to_string(), "B".to_string()]);
+        let again = ensure_default_profile(&dir, vec!["C".into()], "2026-01-02T00:00:00Z").unwrap();
         assert_eq!(again.len(), 1);
-        assert_eq!(again[0].enabled_mod_ids, vec!["A".to_string(), "B".to_string()]);
+        assert_eq!(again[0].mod_ids, vec!["A".to_string(), "B".to_string()]);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -157,7 +160,7 @@ mod tests {
             name: "Demo".into(),
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
-            enabled_mod_ids: vec!["X".into()],
+            mod_ids: vec!["X".into()],
         };
         save_profile_to(&dir, &p).unwrap();
         let loaded = load_profile_by_id_from(&dir, "abc").unwrap();

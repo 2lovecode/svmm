@@ -2,6 +2,7 @@
 import { onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useModsStore } from "../stores/mods";
+import { useLibraryStore } from "../stores/library";
 import { useProfilesStore } from "../stores/profiles";
 import { useSettingsStore } from "../stores/settings";
 
@@ -11,6 +12,7 @@ defineProps<{
 
 const router = useRouter();
 const mods = useModsStore();
+const library = useLibraryStore();
 const profiles = useProfilesStore();
 const settings = useSettingsStore();
 
@@ -19,6 +21,11 @@ const selectValue = ref("");
 onMounted(async () => {
   try {
     await settings.load();
+  } catch {
+    /* optional */
+  }
+  try {
+    await mods.refreshSmapiStatus();
   } catch {
     /* optional */
   }
@@ -39,15 +46,12 @@ watch(
 
 async function onRefresh() {
   try {
-    await mods.refresh();
+    await library.loadHome();
   } catch {
-    /* error surfaced in store */
+    /* home may be unavailable before paths exist */
   }
-}
-
-async function onCheckUpdates() {
   try {
-    await mods.checkUpdates();
+    await mods.refresh();
   } catch {
     /* error surfaced in store */
   }
@@ -72,6 +76,7 @@ async function onProfileChange(event: Event) {
   try {
     await profiles.apply(id);
     await settings.load();
+    await library.loadHome();
     await mods.refresh();
   } catch {
     selectValue.value = previous;
@@ -82,7 +87,22 @@ async function onProfileChange(event: Event) {
 <template>
   <header class="topbar">
     <div class="brand">
-      <span class="brand-mark" aria-hidden="true" />
+      <svg class="junimo" viewBox="0 0 8 8" aria-hidden="true">
+        <g shape-rendering="crispEdges">
+          <rect x="2" y="0" width="4" height="1" fill="#4c6840" />
+          <rect x="1" y="1" width="6" height="1" fill="#4c6840" />
+          <rect x="1" y="2" width="6" height="1" fill="#4c6840" />
+          <rect x="1" y="3" width="6" height="1" fill="#4c6840" />
+          <rect x="1" y="4" width="6" height="1" fill="#5c7850" />
+          <rect x="1" y="5" width="6" height="1" fill="#4c6840" />
+          <rect x="2" y="6" width="1" height="1" fill="#4c6840" />
+          <rect x="5" y="6" width="1" height="1" fill="#4c6840" />
+          <rect x="2" y="2" width="1" height="1" fill="#f7f1df" />
+          <rect x="5" y="2" width="1" height="1" fill="#f7f1df" />
+          <rect x="2" y="3" width="1" height="1" fill="#1c140e" />
+          <rect x="5" y="3" width="1" height="1" fill="#1c140e" />
+        </g>
+      </svg>
       <div class="brand-text">
         <strong>SVMM</strong>
         <span class="brand-sub">星露谷模组管理</span>
@@ -98,15 +118,21 @@ async function onProfileChange(event: Event) {
           @change="onProfileChange"
         >
           <option v-if="profiles.profiles.length === 0" value="" disabled>
-            暂无配置
+            暂无方案
           </option>
           <option v-for="p in profiles.profiles" :key="p.id" :value="p.id">
             {{ p.name }}
           </option>
         </select>
       </label>
+      <button type="button" class="btn btn-ghost" @click="router.push('/browse')">
+        浏览
+      </button>
+      <button type="button" class="btn btn-ghost" @click="router.push('/library')">
+        本地库
+      </button>
       <button type="button" class="btn btn-ghost" @click="router.push('/profiles')">
-        配置
+        方案
       </button>
       <button
         type="button"
@@ -118,19 +144,12 @@ async function onProfileChange(event: Event) {
       </button>
       <button
         type="button"
-        class="btn"
-        :disabled="busy || mods.checkingUpdates || mods.loading"
-        @click="onCheckUpdates"
-      >
-        {{ mods.checkingUpdates ? "检查中…" : "检查更新" }}
-      </button>
-      <button
-        type="button"
         class="btn btn-primary"
-        :disabled="busy || mods.launching"
+        :disabled="busy || mods.launching || mods.smapiInstalled !== true"
+        :title="mods.smapiInstalled === false ? '请先在首页安装 SMAPI' : undefined"
         @click="onLaunch"
       >
-        {{ mods.launching ? "启动中…" : "启动 SMAPI" }}
+        {{ mods.launching ? "启动中…" : "启动" }}
       </button>
       <button type="button" class="btn btn-ghost" @click="router.push('/settings')">
         设置

@@ -115,12 +115,9 @@ pub fn open_log_dir() -> AppResult<()> {
 fn open_dir_in_file_manager(dir: &std::path::Path) -> AppResult<()> {
     #[cfg(windows)]
     {
-        Command::new("explorer")
-            .arg(dir)
-            .spawn()
-            .map_err(|e| {
-                AppError::new("open_log_dir_failed", "无法打开日志目录").with_detail(e.to_string())
-            })?;
+        Command::new("explorer").arg(dir).spawn().map_err(|e| {
+            AppError::new("open_log_dir_failed", "无法打开日志目录").with_detail(e.to_string())
+        })?;
         return Ok(());
     }
 

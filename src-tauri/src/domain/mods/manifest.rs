@@ -44,7 +44,8 @@ fn strip_utf8_bom(bytes: &[u8]) -> &[u8] {
 pub fn parse_manifest(bytes: &[u8]) -> AppResult<Manifest> {
     let bytes = strip_utf8_bom(bytes);
     serde_json::from_slice(bytes).map_err(|e| {
-        AppError::new("manifest_parse_failed", "无法解析 mod manifest.json").with_detail(e.to_string())
+        AppError::new("manifest_parse_failed", "无法解析 mod manifest.json")
+            .with_detail(e.to_string())
     })
 }
 
