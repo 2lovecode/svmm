@@ -110,13 +110,20 @@ fn swap_zip(id_hint: &str, zip: &std::path::Path, meta: ImportMeta) -> AppResult
     let mods = mods_path_opt();
     let imported =
         library::replace_from_zip(&library_dir(), &userdata_dir(), mods.as_deref(), zip, meta)?;
-    if !id_hint.is_empty() && imported.id != id_hint {
-        return Err(AppError::new(
-            "library_id_mismatch",
-            "下载到的模组与本地库记录不是同一个",
-        ));
+    if id_hint.is_empty() {
+        return imported.into_iter().next().ok_or_else(|| {
+            AppError::new("zip_no_mod", "压缩包中未找到有效的模组目录")
+        });
     }
-    Ok(imported)
+    imported
+        .into_iter()
+        .find(|item| item.id == id_hint)
+        .ok_or_else(|| {
+            AppError::new(
+                "library_id_mismatch",
+                "下载到的模组与本地库记录不是同一个",
+            )
+        })
 }
 
 #[tauri::command]
@@ -147,10 +154,15 @@ pub async fn library_add_from_nexus(
                             nexus_mod_id: Some(mod_id),
                             nexus_file_id: Some(file_id),
                         },
-                    );
+                    )?
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| {
+                        AppError::new("zip_no_mod", "压缩包中未找到有效的模组目录")
+                    })?;
                     let _ = std::fs::remove_file(&zip);
                     Ok(LibraryImportResult {
-                        imported: Some(imported?),
+                        imported: Some(imported),
                         browser_url: None,
                     })
                 }

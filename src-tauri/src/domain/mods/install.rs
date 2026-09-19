@@ -61,8 +61,11 @@ fn normalize_for_compare(path: &Path) -> PathBuf {
     out
 }
 
-/// Safely extract `zip_path` into `dest_mods` and return the installed mod root folder.
-pub fn safe_extract_zip(zip_path: &Path, dest_mods: &Path) -> AppResult<PathBuf> {
+/// Safely extract `zip_path` into `dest_mods` and return every installed mod folder.
+///
+/// A package may wrap several mods (Stardew Valley Expanded ships a content pack
+/// and a farm type map). Nested manifests inside a mod folder stay with that mod.
+pub fn safe_extract_zip(zip_path: &Path, dest_mods: &Path) -> AppResult<Vec<PathBuf>> {
     if !dest_mods.is_dir() {
         return Err(AppError::new("mods_dir_missing", "未找到 Mods 目录")
             .with_detail(dest_mods.display().to_string()));
@@ -84,7 +87,7 @@ pub fn safe_extract_zip(zip_path: &Path, dest_mods: &Path) -> AppResult<PathBuf>
         AppError::new("zip_extract_failed", "无法创建解压目录").with_detail(e.to_string())
     })?;
 
-    let extract_result = (|| -> AppResult<PathBuf> {
+    let extract_result = (|| -> AppResult<Vec<PathBuf>> {
         for i in 0..archive.len() {
             let mut entry = archive.by_index(i).map_err(|e| {
                 AppError::new("zip_read_failed", "无法读取压缩包条目").with_detail(e.to_string())
@@ -125,81 +128,54 @@ pub fn safe_extract_zip(zip_path: &Path, dest_mods: &Path) -> AppResult<PathBuf>
             })?;
         }
 
-        let mod_root = find_mod_root(&staging)?;
-        let folder_name = unique_mod_folder_name(dest_mods, &mod_root)?;
-        let final_path = dest_mods.join(&folder_name);
-        fs::rename(&mod_root, &final_path).map_err(|e| {
-            AppError::new("zip_install_failed", "无法安装模组目录").with_detail(e.to_string())
-        })?;
-        Ok(final_path)
+        let roots = collect_mod_roots(&staging);
+        if roots.is_empty() {
+            return Err(AppError::new("zip_no_mod", "压缩包中未找到有效的模组目录"));
+        }
+        let mut installed = Vec::with_capacity(roots.len());
+        for mod_root in roots {
+            let folder_name = unique_mod_folder_name(dest_mods, &mod_root)?;
+            let final_path = dest_mods.join(&folder_name);
+            fs::rename(&mod_root, &final_path).map_err(|e| {
+                AppError::new("zip_install_failed", "无法安装模组目录").with_detail(e.to_string())
+            })?;
+            installed.push(final_path);
+        }
+        Ok(installed)
     })();
 
     let _ = fs::remove_dir_all(&staging);
     extract_result
 }
 
-fn find_mod_root(staging: &Path) -> AppResult<PathBuf> {
-    if staging.join("manifest.json").is_file() {
-        return Ok(staging.to_path_buf());
-    }
-
-    let mut dirs = Vec::new();
-    let entries = fs::read_dir(staging).map_err(|e| {
-        AppError::new("zip_extract_failed", "无法读取解压目录").with_detail(e.to_string())
-    })?;
-    for entry in entries {
-        let entry = entry.map_err(|e| {
-            AppError::new("zip_extract_failed", "无法读取解压目录项").with_detail(e.to_string())
-        })?;
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name == "." || name == ".." {
-            continue;
-        }
-        if path.is_dir() {
-            dirs.push(path);
-        }
-    }
-
-    if dirs.len() == 1 {
-        let only = &dirs[0];
-        if only.join("manifest.json").is_file() || find_manifest_in_tree(only).is_some() {
-            return Ok(only.clone());
-        }
-        return Ok(only.clone());
-    }
-
-    // Prefer a direct child that already has manifest.json.
-    for dir in &dirs {
-        if dir.join("manifest.json").is_file() {
-            return Ok(dir.clone());
-        }
-    }
-
-    if let Some(found) = find_manifest_in_tree(staging) {
-        if let Some(parent) = found.parent() {
-            return Ok(parent.to_path_buf());
-        }
-    }
-
-    Err(AppError::new("zip_no_mod", "压缩包中未找到有效的模组目录"))
+/// Mod folders that SMAPI would load: a directory with `manifest.json`, not nested
+/// inside another such directory. `__MACOSX` is ignored.
+fn collect_mod_roots(dir: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    collect_mod_roots_into(dir, &mut roots);
+    roots.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+    roots
 }
 
-fn find_manifest_in_tree(dir: &Path) -> Option<PathBuf> {
-    let manifest = dir.join("manifest.json");
-    if manifest.is_file() {
-        return Some(manifest);
+fn collect_mod_roots_into(dir: &Path, roots: &mut Vec<PathBuf>) {
+    if dir.join("manifest.json").is_file() {
+        roots.push(dir.to_path_buf());
+        return;
     }
-    let entries = fs::read_dir(dir).ok()?;
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() {
-            if let Some(found) = find_manifest_in_tree(&path) {
-                return Some(found);
-            }
+        if !path.is_dir() {
+            continue;
         }
+        let name = entry.file_name();
+        if name.eq_ignore_ascii_case("__MACOSX") {
+            continue;
+        }
+        collect_mod_roots_into(&path, roots);
     }
-    None
 }
 
 fn unique_mod_folder_name(dest_mods: &Path, mod_root: &Path) -> AppResult<String> {
@@ -260,7 +236,7 @@ fn sanitize_folder_name(name: &str) -> String {
 
 pub fn install_mod_zip(zip_path: &Path, mods_path: &Path) -> AppResult<ModEntry> {
     let installed = safe_extract_zip(zip_path, mods_path)?;
-    entry_from_mod_dir(mods_path, &installed)
+    entry_from_mod_dir(mods_path, &installed[0])
 }
 
 #[cfg(test)]
@@ -349,6 +325,55 @@ mod tests {
         assert_eq!(entry.name, "Zip Mod");
         assert_eq!(entry.version, "1.2.3");
         assert!(mods.join("Ada.ZipMod").join("manifest.json").is_file());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn extracts_wrapper_zip_into_every_mod() {
+        let root = temp_dir("svmm-zip-wrap");
+        let mods = root.join("Mods");
+        fs::create_dir_all(&mods).unwrap();
+        let zip_path = root.join("sve.zip");
+        let cp = br#"{
+  "Name": "Stardew Valley Expanded",
+  "Author": "FlashShifter",
+  "Version": "1.15.0",
+  "Description": "cp",
+  "UniqueID": "FlashShifter.StardewValleyExpanded"
+}"#;
+        let ftm = br#"{
+  "Name": "Stardew Valley Expanded Farm Type",
+  "Author": "FlashShifter",
+  "Version": "1.15.0",
+  "Description": "ftm",
+  "UniqueID": "FlashShifter.StardewValleyExpanded.FTM"
+}"#;
+        write_zip(
+            &zip_path,
+            &[
+                (
+                    "Stardew Valley Expanded/[CP] Stardew Valley Expanded/manifest.json",
+                    cp,
+                ),
+                (
+                    "Stardew Valley Expanded/[FTM] Stardew Valley Expanded/manifest.json",
+                    ftm,
+                ),
+                ("Stardew Valley Expanded/readme.txt", b"install both folders"),
+            ],
+        );
+
+        let installed = safe_extract_zip(&zip_path, &mods).unwrap();
+        assert_eq!(installed.len(), 2);
+        assert!(mods
+            .join("[CP] Stardew Valley Expanded")
+            .join("manifest.json")
+            .is_file());
+        assert!(mods
+            .join("[FTM] Stardew Valley Expanded")
+            .join("manifest.json")
+            .is_file());
+        assert!(!mods.join("Stardew Valley Expanded").exists());
         let _ = fs::remove_dir_all(&root);
     }
 

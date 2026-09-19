@@ -414,7 +414,10 @@ pub fn handle_nxm_url(
         },
     );
     let _ = std::fs::remove_file(&zip_path);
-    result
+    result?
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::new("zip_no_mod", "压缩包中未找到有效的模组目录"))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

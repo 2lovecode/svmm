@@ -474,9 +474,12 @@ pub fn import_zip(zip_path: &Path, library_root: &Path, meta: ImportMeta) -> App
             return Err(err);
         }
     };
-    let result = import_mod_dir(library_root, &extracted, meta);
+    let result = ingest_extracted(&extracted, library_root, None, None, meta);
     let _ = fs::remove_dir_all(&staging);
-    result
+    result?
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::new("zip_no_mod", "压缩包中未找到有效的模组目录"))
 }
 
 pub fn replace_from_zip(
@@ -485,7 +488,7 @@ pub fn replace_from_zip(
     mods_path: Option<&Path>,
     zip_path: &Path,
     meta: ImportMeta,
-) -> AppResult<LibraryMod> {
+) -> AppResult<Vec<LibraryMod>> {
     let staging = std::env::temp_dir().join(format!("svmm-extract-{}", uuid::Uuid::new_v4()));
     let _ = fs::remove_dir_all(&staging);
     fs::create_dir_all(&staging)
@@ -497,16 +500,51 @@ pub fn replace_from_zip(
             return Err(err);
         }
     };
-    let result = replace_package(
-        library_root,
-        userdata_root,
-        mods_path,
+    let result = ingest_extracted(
         &extracted,
+        library_root,
+        Some(userdata_root),
+        mods_path,
         meta,
-        false,
     );
     let _ = fs::remove_dir_all(&staging);
     result
+}
+
+fn ingest_extracted(
+    extracted: &[PathBuf],
+    library_root: &Path,
+    userdata_root: Option<&Path>,
+    mods_path: Option<&Path>,
+    meta: ImportMeta,
+) -> AppResult<Vec<LibraryMod>> {
+    let mut imported = Vec::new();
+    for path in extracted {
+        let result = if let Some(userdata) = userdata_root {
+            replace_package(
+                library_root,
+                userdata,
+                mods_path,
+                path,
+                meta.clone(),
+                false,
+            )
+        } else {
+            import_mod_dir(library_root, path, meta.clone())
+        };
+        match result {
+            Ok(item) => imported.push(item),
+            Err(err) if err.code == "smapi_bundled" => {}
+            Err(err) => return Err(err),
+        }
+    }
+    if imported.is_empty() {
+        return Err(AppError::new(
+            "zip_no_mod",
+            "压缩包中未找到有效的模组目录",
+        ));
+    }
+    Ok(imported)
 }
 
 pub fn delete_mod(library_root: &Path, profiles_dir: &Path, id: &str) -> AppResult<()> {
@@ -1163,6 +1201,92 @@ mod tests {
         assert_eq!(imported.id, "Ada.Demo");
         assert!(mods.join("keep.txt").is_file());
         assert!(!mods.join("Ada.Demo").exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn zip_imports_every_sibling_mod() {
+        let root = temp_dir("svmm-zip-sve");
+        let library = root.join("library");
+        let zip_path = root.join("sve.zip");
+        write_zip(
+            &zip_path,
+            &[
+                (
+                    "Stardew Valley Expanded/[CP] Stardew Valley Expanded/manifest.json",
+                    br#"{
+  "Name": "Stardew Valley Expanded",
+  "Author": "FlashShifter",
+  "Version": "1.15.0",
+  "Description": "cp",
+  "UniqueID": "FlashShifter.StardewValleyExpanded"
+}"#,
+                ),
+                (
+                    "Stardew Valley Expanded/[FTM] Stardew Valley Expanded/manifest.json",
+                    br#"{
+  "Name": "Stardew Valley Expanded Farm Type",
+  "Author": "FlashShifter",
+  "Version": "1.15.0",
+  "Description": "ftm",
+  "UniqueID": "FlashShifter.StardewValleyExpanded.FTM"
+}"#,
+                ),
+            ],
+        );
+        import_zip(&zip_path, &library, ImportMeta::default()).unwrap();
+        let mods = list_mods(&library, LibraryQuery::default()).unwrap();
+        let mut ids: Vec<_> = mods.iter().map(|item| item.id.as_str()).collect();
+        ids.sort_unstable();
+        assert_eq!(
+            ids,
+            vec![
+                "FlashShifter.StardewValleyExpanded",
+                "FlashShifter.StardewValleyExpanded.FTM",
+            ]
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn zip_keeps_nested_content_pack_inside_parent() {
+        let root = temp_dir("svmm-zip-nested");
+        let library = root.join("library");
+        let zip_path = root.join("mod.zip");
+        write_zip(
+            &zip_path,
+            &[
+                (
+                    "MyMod/manifest.json",
+                    br#"{
+  "Name": "Parent",
+  "Author": "Ada",
+  "Version": "1.0.0",
+  "Description": "parent",
+  "UniqueID": "Ada.Parent"
+}"#,
+                ),
+                (
+                    "MyMod/[CP] Extra/manifest.json",
+                    br#"{
+  "Name": "Extra",
+  "Author": "Ada",
+  "Version": "1.0.0",
+  "Description": "child",
+  "UniqueID": "Ada.Parent.CP"
+}"#,
+                ),
+            ],
+        );
+        import_zip(&zip_path, &library, ImportMeta::default()).unwrap();
+        let mods = list_mods(&library, LibraryQuery::default()).unwrap();
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods[0].id, "Ada.Parent");
+        assert!(library
+            .join("Ada.Parent")
+            .join("[CP] Extra")
+            .join("manifest.json")
+            .is_file());
         let _ = fs::remove_dir_all(&root);
     }
 
