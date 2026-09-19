@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::domain::game::smapi_file_name;
 use crate::domain::http::{self, download_percent};
 use crate::domain::mods::install::validate_zip_entry_path;
+use crate::domain::mods::manifest::parse_manifest;
 use crate::error::{AppError, AppResult};
 
 const RELEASES_URL: &str = "https://api.github.com/repos/Pathoschild/SMAPI/releases/latest";
@@ -146,6 +147,38 @@ pub fn installer_args(game_path: &Path) -> Vec<String> {
     ]
 }
 
+pub fn uninstaller_args(game_path: &Path) -> Vec<String> {
+    vec![
+        "--uninstall".to_string(),
+        "--game-path".to_string(),
+        game_path.display().to_string(),
+        "--no-prompt".to_string(),
+    ]
+}
+
+/// Version of the SMAPI that shipped the bundled Console Commands mod.
+pub fn installed_version(game_path: &Path) -> Option<String> {
+    for name in ["ConsoleCommands", "ErrorHandler", "SaveBackup"] {
+        let path = game_path.join("Mods").join(name).join("manifest.json");
+        let Ok(bytes) = fs::read(&path) else {
+            continue;
+        };
+        let Ok(manifest) = parse_manifest(&bytes) else {
+            continue;
+        };
+        let version = manifest.version.trim();
+        if !version.is_empty() {
+            return Some(version.to_string());
+        }
+    }
+    None
+}
+
+pub fn latest_version() -> AppResult<String> {
+    let tag = fetch_latest_release()?.tag_name;
+    Ok(tag.trim_start_matches('v').to_string())
+}
+
 fn game_marker_present(game_path: &Path) -> bool {
     #[cfg(windows)]
     {
@@ -187,6 +220,18 @@ pub fn install_into(game_path: &Path, report: &dyn Fn(InstallProgress)) -> AppRe
     result
 }
 
+/// Download the latest official installer and uninstall SMAPI from `game_path`.
+pub fn uninstall_into(game_path: &Path, report: &dyn Fn(InstallProgress)) -> AppResult<()> {
+    report(InstallProgress::step("query", "正在获取 SMAPI 版本…"));
+    ensure_game_dir(game_path)?;
+    let release = fetch_latest_release()?;
+    let asset = select_installer_asset(&release.assets)?.clone();
+    let work = temp_work_dir()?;
+    let result = uninstall_from_asset(game_path, &release.tag_name, &asset, &work, report);
+    let _ = fs::remove_dir_all(&work);
+    result
+}
+
 fn install_from_asset(
     game_path: &Path,
     version: &str,
@@ -194,19 +239,9 @@ fn install_from_asset(
     work: &Path,
     report: &dyn Fn(InstallProgress),
 ) -> AppResult<String> {
-    let zip_path = work.join("installer.zip");
-    download_file(&asset.url, &zip_path, version, report)?;
-    report(InstallProgress::step("extract", "正在解压安装包…"));
-    let extracted = work.join("extracted");
-    fs::create_dir_all(&extracted).map_err(|e| {
-        AppError::new("smapi_extract_failed", "无法创建解压目录").with_detail(e.to_string())
-    })?;
-    extract_zip(&zip_path, &extracted)?;
-    clear_quarantine(&extracted);
-    let installer = find_installer(&extracted, platform_folder(), installer_file_name())?;
-    make_executable(&installer)?;
+    let installer = stage_installer(version, asset, work, report)?;
     report(InstallProgress::step("install", "正在安装 SMAPI…"));
-    run_installer(&installer, game_path)?;
+    run_installer(&installer, &installer_args(game_path))?;
 
     let smapi_path = game_path.join(smapi_file_name());
     if !smapi_path.is_file() {
@@ -221,7 +256,47 @@ fn install_from_asset(
             AppError::new("mods_dir_create_failed", "无法创建 Mods 目录").with_detail(e.to_string())
         })?;
     }
-    Ok(version.to_string())
+    Ok(version.trim_start_matches('v').to_string())
+}
+
+fn uninstall_from_asset(
+    game_path: &Path,
+    version: &str,
+    asset: &InstallerAsset,
+    work: &Path,
+    report: &dyn Fn(InstallProgress),
+) -> AppResult<()> {
+    let installer = stage_installer(version, asset, work, report)?;
+    report(InstallProgress::step("uninstall", "正在卸载 SMAPI…"));
+    run_installer(&installer, &uninstaller_args(game_path))?;
+    let smapi_path = game_path.join(smapi_file_name());
+    if smapi_path.is_file() {
+        return Err(
+            AppError::new("smapi_uninstall_incomplete", "卸载程序已结束，但 SMAPI 仍在")
+                .with_detail(smapi_path.display().to_string()),
+        );
+    }
+    Ok(())
+}
+
+fn stage_installer(
+    version: &str,
+    asset: &InstallerAsset,
+    work: &Path,
+    report: &dyn Fn(InstallProgress),
+) -> AppResult<PathBuf> {
+    let zip_path = work.join("installer.zip");
+    download_file(&asset.url, &zip_path, version, report)?;
+    report(InstallProgress::step("extract", "正在解压安装包…"));
+    let extracted = work.join("extracted");
+    fs::create_dir_all(&extracted).map_err(|e| {
+        AppError::new("smapi_extract_failed", "无法创建解压目录").with_detail(e.to_string())
+    })?;
+    extract_zip(&zip_path, &extracted)?;
+    clear_quarantine(&extracted);
+    let installer = find_installer(&extracted, platform_folder(), installer_file_name())?;
+    make_executable(&installer)?;
+    Ok(installer)
 }
 
 fn fetch_latest_release() -> AppResult<GithubRelease> {
@@ -426,12 +501,12 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> AppResult<()> {
     Ok(())
 }
 
-fn run_installer(installer: &Path, game_path: &Path) -> AppResult<()> {
+fn run_installer(installer: &Path, args: &[String]) -> AppResult<()> {
     let mut cmd = Command::new(installer);
     if let Some(dir) = installer.parent() {
         cmd.current_dir(dir);
     }
-    cmd.args(installer_args(game_path));
+    cmd.args(args);
     cmd.stdin(Stdio::null());
     let output = cmd.output().map_err(|e| {
         AppError::new("smapi_install_failed", "无法启动 SMAPI 安装程序").with_detail(e.to_string())
@@ -643,5 +718,46 @@ mod tests {
                 "--no-prompt",
             ]
         );
+    }
+
+    #[test]
+    fn uninstaller_args_are_noninteractive() {
+        let args = uninstaller_args(Path::new("/Games/Stardew Valley"));
+        assert_eq!(
+            args,
+            vec![
+                "--uninstall",
+                "--game-path",
+                "/Games/Stardew Valley",
+                "--no-prompt",
+            ]
+        );
+    }
+
+    #[test]
+    fn installed_version_reads_bundled_manifest() {
+        let root = std::env::temp_dir().join(format!(
+            "svmm-smapi-ver-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let manifest = root.join("Mods").join("ConsoleCommands").join("manifest.json");
+        std::fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        std::fs::write(
+            &manifest,
+            r#"{
+  "Name": "Console Commands",
+  "Author": "SMAPI",
+  "Version": "4.1.10",
+  "Description": "bundled",
+  "UniqueID": "SMAPI.ConsoleCommands"
+}"#,
+        )
+        .unwrap();
+        assert_eq!(installed_version(&root).as_deref(), Some("4.1.10"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

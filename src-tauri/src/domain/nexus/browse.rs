@@ -9,6 +9,8 @@ use crate::storage::secure_key;
 
 const GRAPHQL_URL: &str = "https://api.nexusmods.com/v2/graphql";
 pub const PAGE_SIZE: u32 = 20;
+/// Nexus game id for Stardew Valley. Required when a query filters by `modId`.
+const STARDEW_GAME_ID: &str = "1303";
 
 const BROWSE_QUERY: &str = r#"
 query Browse($filter: ModsFilter, $sort: [ModsSort!], $offset: Int, $count: Int) {
@@ -107,6 +109,7 @@ pub fn browse_query(
     Ok(result)
 }
 
+#[cfg(test)]
 pub fn browse_request_body(page: u32, category: Option<&str>) -> Value {
     browse_request_body_query(page, category, None, None)
 }
@@ -139,10 +142,13 @@ fn base_filter(category: Option<&str>, keyword: Option<&str>, mod_id: Option<u32
         filter["categoryName"] = json!([{ "value": name, "op": "EQUALS" }]);
     }
     if let Some(word) = keyword.map(str::trim).filter(|word| !word.is_empty()) {
-        filter["name"] = json!([{ "value": format!("*{word}*"), "op": "WILDCARD" }]);
+        // Nexus applies its own leading and trailing wildcards for this operator.
+        // Wrapping the term in `*` makes the query match nothing.
+        filter["name"] = json!([{ "value": word, "op": "WILDCARD" }]);
     }
     if let Some(id) = mod_id {
         filter["modId"] = json!([{ "value": id.to_string(), "op": "EQUALS" }]);
+        filter["gameId"] = json!([{ "value": STARDEW_GAME_ID, "op": "EQUALS" }]);
     }
     filter
 }
@@ -319,9 +325,11 @@ mod tests {
     fn keyword_and_mod_id_filters() {
         let body = browse_request_body_query(1, None, Some("tractor"), Some(2400));
         let filter = &body["variables"]["filter"];
-        assert_eq!(filter["name"][0]["value"], "*tractor*");
+        assert_eq!(filter["name"][0]["value"], "tractor");
         assert_eq!(filter["name"][0]["op"], "WILDCARD");
         assert_eq!(filter["modId"][0]["value"], "2400");
+        assert_eq!(filter["gameId"][0]["value"], "1303");
+        assert_eq!(filter["gameId"][0]["op"], "EQUALS");
     }
 
     #[test]

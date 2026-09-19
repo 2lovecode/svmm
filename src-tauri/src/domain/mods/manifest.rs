@@ -5,7 +5,7 @@ use crate::error::{AppError, AppResult};
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
 pub struct Manifest {
-    #[serde(rename = "UniqueID")]
+    #[serde(rename = "UniqueID", alias = "UniqueId")]
     pub unique_id: String,
     pub name: String,
     pub author: String,
@@ -21,7 +21,7 @@ pub struct Manifest {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
 pub struct ManifestDependency {
-    #[serde(rename = "UniqueID")]
+    #[serde(rename = "UniqueID", alias = "UniqueId")]
     pub unique_id: String,
     #[serde(default = "default_true")]
     pub is_required: bool,
@@ -99,5 +99,19 @@ mod tests {
         assert_eq!(m.dependencies.len(), 1);
         assert!(m.dependencies[0].is_required);
         assert_eq!(m.dependencies[0].unique_id, "Pathoschild.ContentPatcher");
+    }
+
+    #[test]
+    fn parse_accepts_smapi_unique_id_spelling() {
+        let raw = br#"{
+      "Name": "Console Commands",
+      "Author": "SMAPI",
+      "Version": "4.5.2",
+      "Description": "bundled",
+      "UniqueId": "SMAPI.ConsoleCommands"
+    }"#;
+        let m = parse_manifest(raw).unwrap();
+        assert_eq!(m.unique_id, "SMAPI.ConsoleCommands");
+        assert_eq!(m.version, "4.5.2");
     }
 }

@@ -18,6 +18,7 @@ pub struct SmapiStatus {
     pub game_found: bool,
     pub game_path: Option<PathBuf>,
     pub smapi_path: Option<PathBuf>,
+    pub installed_version: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -34,14 +35,16 @@ pub fn smapi_status() -> AppResult<SmapiStatus> {
         Ok(paths) => Ok(SmapiStatus {
             installed: paths.smapi_path.is_file(),
             game_found: true,
-            game_path: Some(paths.game_path),
+            game_path: Some(paths.game_path.clone()),
             smapi_path: Some(paths.smapi_path),
+            installed_version: smapi_install::installed_version(&paths.game_path),
         }),
         Err(err) if err.code == "game_path_not_found" => Ok(SmapiStatus {
             installed: false,
             game_found: false,
             game_path: None,
             smapi_path: None,
+            installed_version: None,
         }),
         Err(err) => Err(err),
     }
@@ -83,6 +86,41 @@ fn install_smapi_blocking(app: tauri::AppHandle) -> AppResult<SmapiInstallReport
 #[tauri::command]
 pub async fn install_smapi(app: tauri::AppHandle) -> AppResult<SmapiInstallReport> {
     match tauri::async_runtime::spawn_blocking(move || install_smapi_blocking(app)).await {
+        Ok(result) => result,
+        Err(_) => Err(AppError::new("task_join_failed", "后台任务失败")),
+    }
+}
+
+#[tauri::command]
+pub async fn smapi_latest_version() -> AppResult<String> {
+    tauri::async_runtime::spawn_blocking(|| log_result(smapi_install::latest_version()))
+        .await
+        .map_err(|_| AppError::new("task_join_failed", "后台任务失败"))?
+}
+
+fn uninstall_smapi_blocking(app: tauri::AppHandle) -> AppResult<()> {
+    log_result((|| {
+        let settings = settings::load_settings()?;
+        let paths = game::resolve_paths(&settings)?;
+        smapi_install::uninstall_into(&paths.game_path, &|progress| {
+            let _ = app.emit("smapi-install-progress", &progress);
+        })?;
+        if settings
+            .smapi_path
+            .as_ref()
+            .is_some_and(|path| !path.is_file())
+        {
+            let mut next = settings;
+            next.smapi_path = None;
+            settings::save_settings(&next)?;
+        }
+        Ok(())
+    })())
+}
+
+#[tauri::command]
+pub async fn uninstall_smapi(app: tauri::AppHandle) -> AppResult<()> {
+    match tauri::async_runtime::spawn_blocking(move || uninstall_smapi_blocking(app)).await {
         Ok(result) => result,
         Err(_) => Err(AppError::new("task_join_failed", "后台任务失败")),
     }

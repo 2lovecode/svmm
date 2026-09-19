@@ -1,6 +1,9 @@
+use serde::Serialize;
+
 use crate::domain::game;
 use crate::domain::library::{self, ImportMeta, LibraryMod, LibraryQuery, ProfileState};
-use crate::domain::nexus::download::{self, NexusFileInfo};
+use crate::domain::smapi_update::UpdateInfo;
+use crate::domain::nexus::download::{self, NexusAcquire, NexusFileInfo};
 use crate::error::{AppError, AppResult};
 use crate::storage::log_util::log_result;
 use crate::storage::paths::{apply_marker_path, library_dir, userdata_dir};
@@ -71,7 +74,15 @@ pub fn delete_library_mod(id: String) -> AppResult<()> {
 pub fn home_state() -> AppResult<ProfileState> {
     log_result((|| {
         prepare()?;
-        let profile = profiles_store::load_profile_by_id("default")?;
+        let preferred = settings::load_settings()
+            .ok()
+            .and_then(|item| item.last_profile_id)
+            .filter(|id| !id.is_empty());
+        let profile = match preferred {
+            Some(id) => profiles_store::load_profile_by_id(&id)
+                .or_else(|_| profiles_store::load_profile_by_id("default"))?,
+            None => profiles_store::load_profile_by_id("default")?,
+        };
         library::profile_state(mods_path_opt().as_deref(), &library_dir(), &profile)
     })())
 }
@@ -112,7 +123,7 @@ fn swap_zip(id_hint: &str, zip: &std::path::Path, meta: ImportMeta) -> AppResult
 pub async fn library_add_from_nexus(
     mod_id: u32,
     category: Option<String>,
-) -> AppResult<LibraryMod> {
+) -> AppResult<LibraryImportResult> {
     join_blocking(move || {
         log_result((|| {
             prepare()?;
@@ -122,29 +133,53 @@ pub async fn library_add_from_nexus(
                 .max_by_key(|f| f.uploaded_timestamp)
                 .map(|f| f.file_id)
                 .ok_or_else(|| AppError::new("nexus_no_main_file", "未找到可用的主文件"))?;
-            let cdn = download::fetch_premium_download_link(mod_id, file_id)?;
-            let zip = download::download_url_to_temp_zip(&cdn)?;
-            let mods = mods_path_opt();
-            let result = library::replace_from_zip(
-                &library_dir(),
-                &userdata_dir(),
-                mods.as_deref(),
-                &zip,
-                ImportMeta {
-                    category,
-                    nexus_mod_id: Some(mod_id),
-                    nexus_file_id: Some(file_id),
-                },
-            );
-            let _ = std::fs::remove_file(&zip);
-            result
+            match download::acquire_nexus_file(mod_id, file_id)? {
+                NexusAcquire::Direct(cdn) => {
+                    let zip = download::download_url_to_temp_zip(&cdn)?;
+                    let mods = mods_path_opt();
+                    let imported = library::replace_from_zip(
+                        &library_dir(),
+                        &userdata_dir(),
+                        mods.as_deref(),
+                        &zip,
+                        ImportMeta {
+                            category,
+                            nexus_mod_id: Some(mod_id),
+                            nexus_file_id: Some(file_id),
+                        },
+                    );
+                    let _ = std::fs::remove_file(&zip);
+                    Ok(LibraryImportResult {
+                        imported: Some(imported?),
+                        browser_url: None,
+                    })
+                }
+                NexusAcquire::ManualPage(url) => Ok(LibraryImportResult {
+                    imported: None,
+                    browser_url: Some(url),
+                }),
+            }
         })())
     })
     .await
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryImportResult {
+    pub imported: Option<LibraryMod>,
+    pub browser_url: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryUpdateResult {
+    pub updated: Option<LibraryMod>,
+    pub browser_url: Option<String>,
+}
+
 #[tauri::command]
-pub async fn library_update(id: String) -> AppResult<LibraryMod> {
+pub async fn library_update(id: String) -> AppResult<LibraryUpdateResult> {
     join_blocking(move || {
         log_result((|| {
             let current = library::load_mod(&library_dir(), &id)?;
@@ -160,19 +195,29 @@ pub async fn library_update(id: String) -> AppResult<LibraryMod> {
                 .max_by_key(|f| f.uploaded_timestamp)
                 .map(|f| f.file_id)
                 .ok_or_else(|| AppError::new("nexus_no_main_file", "未找到可用的主文件"))?;
-            let cdn = download::fetch_premium_download_link(mod_id, file_id)?;
-            let zip = download::download_url_to_temp_zip(&cdn)?;
-            let result = swap_zip(
-                &id,
-                &zip,
-                ImportMeta {
-                    category: current.category,
-                    nexus_mod_id: Some(mod_id),
-                    nexus_file_id: Some(file_id),
-                },
-            );
-            let _ = std::fs::remove_file(&zip);
-            result
+            match download::acquire_nexus_file(mod_id, file_id)? {
+                NexusAcquire::Direct(cdn) => {
+                    let zip = download::download_url_to_temp_zip(&cdn)?;
+                    let updated = swap_zip(
+                        &id,
+                        &zip,
+                        ImportMeta {
+                            category: current.category,
+                            nexus_mod_id: Some(mod_id),
+                            nexus_file_id: Some(file_id),
+                        },
+                    );
+                    let _ = std::fs::remove_file(&zip);
+                    Ok(LibraryUpdateResult {
+                        updated: Some(updated?),
+                        browser_url: None,
+                    })
+                }
+                NexusAcquire::ManualPage(url) => Ok(LibraryUpdateResult {
+                    updated: None,
+                    browser_url: Some(url),
+                }),
+            }
         })())
     })
     .await
@@ -213,6 +258,18 @@ pub async fn library_downgrade(id: String, file_id: u64) -> AppResult<LibraryMod
             );
             let _ = std::fs::remove_file(&zip);
             result
+        })())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn library_check_updates() -> AppResult<Vec<UpdateInfo>> {
+    join_blocking(|| {
+        log_result((|| {
+            prepare()?;
+            let entries = library::entries_for_updates(&library_dir())?;
+            crate::domain::smapi_update::check_updates(&entries)
         })())
     })
     .await

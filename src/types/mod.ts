@@ -41,6 +41,7 @@ export interface SmapiStatus {
   gameFound: boolean;
   gamePath: string | null;
   smapiPath: string | null;
+  installedVersion: string | null;
 }
 
 export interface SmapiInstallReport {
@@ -82,6 +83,16 @@ export interface LibraryMod {
   nexusFileId: number | null;
   folderName: string;
   files: { path: string; sha256: string }[];
+}
+
+export interface LibraryImportResult {
+  imported: LibraryMod | null;
+  browserUrl: string | null;
+}
+
+export interface LibraryUpdateResult {
+  updated: LibraryMod | null;
+  browserUrl: string | null;
 }
 
 export interface ProfileState {

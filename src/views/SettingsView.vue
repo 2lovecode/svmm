@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
-import { useRouter } from "vue-router";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useModsStore } from "../stores/mods";
 import { useSettingsStore } from "../stores/settings";
 
-const router = useRouter();
 const store = useSettingsStore();
+const mods = useModsStore();
 
 const isMac =
   navigator.userAgent.includes("Macintosh") || navigator.platform.startsWith("Mac");
@@ -20,7 +20,52 @@ onMounted(async () => {
   } catch {
     /* error in store */
   }
+  try {
+    await mods.refreshSmapiStatus();
+  } catch {
+    /* optional */
+  }
 });
+
+function versionNewer(latest: string, current: string): boolean {
+  const parts = (value: string) =>
+    value
+      .replace(/^v/i, "")
+      .split(/[.+-]/)
+      .map((part) => Number.parseInt(part, 10) || 0);
+  const left = parts(latest);
+  const right = parts(current);
+  const count = Math.max(left.length, right.length);
+  for (let i = 0; i < count; i += 1) {
+    const delta = (left[i] ?? 0) - (right[i] ?? 0);
+    if (delta !== 0) return delta > 0;
+  }
+  return false;
+}
+
+function smapiCanUpgrade(): boolean {
+  const latest = mods.smapiLatestVersion;
+  const current = mods.smapiInstalledVersion;
+  if (!latest || !current) return false;
+  return versionNewer(latest, current);
+}
+
+async function onInstallSmapi() {
+  try {
+    await mods.installSmapi();
+  } catch {
+    /* shown below */
+  }
+}
+
+async function onUninstallSmapi() {
+  if (!window.confirm("卸载 SMAPI？游戏会恢复为原版启动，模组将无法加载。")) return;
+  try {
+    await mods.uninstallSmapi();
+  } catch {
+    /* shown below */
+  }
+}
 
 async function pickDirectory(field: "gamePath" | "modsPath") {
   const selected = await open({
@@ -120,11 +165,8 @@ async function onOpenLogDir() {
 </script>
 
 <template>
-  <div class="page settings-page">
+  <div class="page-view">
     <header class="settings-header">
-      <button type="button" class="btn btn-ghost" @click="router.push('/')">
-        ← 返回
-      </button>
       <h1>设置</h1>
     </header>
 
@@ -183,6 +225,56 @@ async function onOpenLogDir() {
         <div class="settings-actions">
           <button type="button" class="btn" :disabled="store.loading" @click="onDiscover">
             自动探测
+          </button>
+        </div>
+      </section>
+
+      <section class="settings-card">
+        <h2>SMAPI</h2>
+        <p v-if="mods.installingSmapi" class="hint">
+          {{ mods.smapiProgress?.message ?? "正在处理 SMAPI…" }}
+        </p>
+        <p v-else-if="!mods.gameFound" class="hint">未找到星露谷物语。请先填写游戏目录。</p>
+        <p v-else-if="mods.smapiInstalled === false" class="hint">尚未安装。安装后才能运行模组。</p>
+        <p v-else-if="mods.smapiInstalled" class="hint">
+          当前 {{ mods.smapiInstalledVersion || "已安装" }}
+          <template v-if="smapiCanUpgrade()"> · 可升级 {{ mods.smapiLatestVersion }}</template>
+          <template v-else-if="mods.smapiLatestVersion"> · 已是最新</template>
+        </p>
+        <div
+          v-if="mods.installingSmapi"
+          class="progress-track"
+          :class="{ indeterminate: mods.smapiProgress?.percent == null }"
+        >
+          <span :style="{ width: `${mods.smapiProgress?.percent ?? 40}%` }" />
+        </div>
+        <div class="settings-actions">
+          <button
+            v-if="mods.gameFound && mods.smapiInstalled === false"
+            type="button"
+            class="btn btn-primary"
+            :disabled="mods.installingSmapi"
+            @click="onInstallSmapi"
+          >
+            {{ mods.installingSmapi ? "安装中…" : "安装" }}
+          </button>
+          <button
+            v-if="smapiCanUpgrade()"
+            type="button"
+            class="btn btn-primary"
+            :disabled="mods.installingSmapi"
+            @click="onInstallSmapi"
+          >
+            {{ mods.installingSmapi ? "升级中…" : "升级" }}
+          </button>
+          <button
+            v-if="mods.smapiInstalled"
+            type="button"
+            class="btn btn-danger"
+            :disabled="mods.installingSmapi"
+            @click="onUninstallSmapi"
+          >
+            卸载
           </button>
         </div>
       </section>

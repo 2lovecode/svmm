@@ -103,8 +103,16 @@ pub fn ensure_default_profile(
     now_iso: &str,
 ) -> AppResult<Vec<Profile>> {
     ensure_profiles_dir_at(dir)?;
-    let existing = list_profiles_from(dir)?;
+    let mut existing = list_profiles_from(dir)?;
     if !existing.is_empty() {
+        if let Some(profile) = existing.iter_mut().find(|profile| profile.id == "default") {
+            if profile.name.trim().is_empty() || profile.name.eq_ignore_ascii_case("default") {
+                profile.name = "默认方案".to_string();
+                profile.updated_at = now_iso.to_string();
+                let updated = profile.clone();
+                save_profile_to(dir, &updated)?;
+            }
+        }
         return Ok(existing);
     }
     let profile = Profile {
@@ -149,6 +157,23 @@ mod tests {
         let again = ensure_default_profile(&dir, vec!["C".into()], "2026-01-02T00:00:00Z").unwrap();
         assert_eq!(again.len(), 1);
         assert_eq!(again[0].mod_ids, vec!["A".to_string(), "B".to_string()]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn renames_legacy_default_display_name() {
+        let dir = temp_dir();
+        let legacy = Profile {
+            id: "default".into(),
+            name: "default".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+            mod_ids: vec!["A".into()],
+        };
+        save_profile_to(&dir, &legacy).unwrap();
+        let list = ensure_default_profile(&dir, Vec::new(), "2026-01-02T00:00:00Z").unwrap();
+        assert_eq!(list[0].name, "默认方案");
+        assert_eq!(list[0].id, "default");
         let _ = fs::remove_dir_all(&dir);
     }
 

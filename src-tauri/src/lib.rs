@@ -5,8 +5,8 @@ mod storage;
 
 use commands::game::{discover_paths, get_settings, save_settings, validate_paths};
 use commands::library::{
-    delete_library_mod, home_state, library_add_from_nexus, library_downgrade, library_nexus_files,
-    library_update, list_library, profile_state,
+    delete_library_mod, home_state, library_add_from_nexus, library_check_updates, library_downgrade,
+    library_nexus_files, library_update, list_library, profile_state,
 };
 use commands::mods::{
     install_from_nxm, install_from_nxm_blocking, install_mod_zip, scan_mods, set_mod_enabled,
@@ -19,7 +19,7 @@ use commands::profiles::{
     add_profile_mod, apply_profile, create_profile, delete_profile, list_profiles, profile_detail,
     remove_profile_mod, rename_profile, snapshot_current_as_profile,
 };
-use commands::smapi::{install_smapi, launch_smapi, smapi_status};
+use commands::smapi::{install_smapi, launch_smapi, smapi_latest_version, smapi_status, uninstall_smapi};
 use commands::updates::check_mod_updates;
 use storage::log_util::open_log_dir;
 use tauri::Emitter;
@@ -139,7 +139,9 @@ pub fn run() {
             install_from_nxm,
             launch_smapi,
             smapi_status,
+            smapi_latest_version,
             install_smapi,
+            uninstall_smapi,
             list_profiles,
             create_profile,
             rename_profile,
@@ -155,6 +157,7 @@ pub fn run() {
             profile_state,
             library_add_from_nexus,
             library_update,
+            library_check_updates,
             library_nexus_files,
             library_downgrade,
             check_mod_updates,

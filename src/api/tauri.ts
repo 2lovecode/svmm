@@ -2,7 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   ApplyReport,
   GamePaths,
+  LibraryImportResult,
   LibraryMod,
+  LibraryUpdateResult,
   ModEntry,
   NexusBrowsePage,
   NexusCategory,
@@ -38,6 +40,14 @@ export function smapiStatus(): Promise<SmapiStatus> {
 
 export function installSmapi(): Promise<SmapiInstallReport> {
   return invoke<SmapiInstallReport>("install_smapi");
+}
+
+export function uninstallSmapi(): Promise<void> {
+  return invoke<void>("uninstall_smapi");
+}
+
+export function smapiLatestVersion(): Promise<string> {
+  return invoke<string>("smapi_latest_version");
 }
 
 export function getSettings(): Promise<Settings> {
@@ -110,15 +120,19 @@ export function deleteLibraryMod(id: string): Promise<void> {
 export function libraryAddFromNexus(
   modId: number,
   category?: string | null,
-): Promise<LibraryMod> {
-  return invoke<LibraryMod>("library_add_from_nexus", {
+): Promise<LibraryImportResult> {
+  return invoke<LibraryImportResult>("library_add_from_nexus", {
     modId,
     category: category ?? null,
   });
 }
 
-export function libraryUpdate(id: string): Promise<LibraryMod> {
-  return invoke<LibraryMod>("library_update", { id });
+export function libraryUpdate(id: string): Promise<LibraryUpdateResult> {
+  return invoke<LibraryUpdateResult>("library_update", { id });
+}
+
+export function libraryCheckUpdates(): Promise<UpdateInfo[]> {
+  return invoke<UpdateInfo[]>("library_check_updates");
 }
 
 export function libraryNexusFiles(id: string): Promise<NexusFileInfo[]> {

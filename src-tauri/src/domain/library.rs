@@ -160,6 +160,75 @@ fn mod_dir(library_root: &Path, id: &str) -> PathBuf {
     library_root.join(safe_component(id))
 }
 
+fn dismissed_path(library_root: &Path) -> PathBuf {
+    library_root.join(".dismissed-ids.json")
+}
+
+fn read_dismissed(library_root: &Path) -> AppResult<HashSet<String>> {
+    let path = dismissed_path(library_root);
+    if !path.is_file() {
+        return Ok(HashSet::new());
+    }
+    let text = fs::read_to_string(&path)
+        .map_err(|e| io_err("library_read_failed", "无法读取已删除记录", e))?;
+    let ids: Vec<String> = serde_json::from_str(&text).map_err(|e| {
+        AppError::new("library_parse_failed", "已删除记录无效").with_detail(e.to_string())
+    })?;
+    Ok(ids.into_iter().collect())
+}
+
+fn write_dismissed(library_root: &Path, ids: &HashSet<String>) -> AppResult<()> {
+    fs::create_dir_all(library_root)
+        .map_err(|e| io_err("library_write_failed", "无法创建本地库", e))?;
+    let mut list: Vec<String> = ids.iter().cloned().collect();
+    list.sort();
+    let text = serde_json::to_string_pretty(&list).map_err(|e| {
+        AppError::new("library_serialize_failed", "无法写入已删除记录").with_detail(e.to_string())
+    })?;
+    fs::write(dismissed_path(library_root), text)
+        .map_err(|e| io_err("library_write_failed", "无法写入已删除记录", e))
+}
+
+fn is_dismissed(ids: &HashSet<String>, id: &str) -> bool {
+    ids.iter().any(|item| item.eq_ignore_ascii_case(id))
+}
+
+fn remember_dismissed(library_root: &Path, id: &str) -> AppResult<()> {
+    let mut ids = read_dismissed(library_root)?;
+    if is_dismissed(&ids, id) {
+        return Ok(());
+    }
+    ids.insert(id.to_string());
+    write_dismissed(library_root, &ids)
+}
+
+fn forget_dismissed(library_root: &Path, id: &str) -> AppResult<()> {
+    let mut ids = read_dismissed(library_root)?;
+    let before = ids.len();
+    ids.retain(|item| !item.eq_ignore_ascii_case(id));
+    if ids.len() == before {
+        return Ok(());
+    }
+    write_dismissed(library_root, &ids)
+}
+
+fn remove_id_from_profiles(profiles_dir: &Path, id: &str) -> AppResult<()> {
+    if !profiles_dir.exists() {
+        return Ok(());
+    }
+    let profiles = crate::storage::profiles_store::list_profiles_from(profiles_dir)?;
+    for mut profile in profiles {
+        let before = profile.mod_ids.len();
+        profile
+            .mod_ids
+            .retain(|item| !item.eq_ignore_ascii_case(id));
+        if profile.mod_ids.len() != before {
+            crate::storage::profiles_store::save_profile_to(profiles_dir, &profile)?;
+        }
+    }
+    Ok(())
+}
+
 fn sha256_bytes(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     digest.iter().map(|b| format!("{b:02x}")).collect()
@@ -389,6 +458,7 @@ pub fn import_mod_dir(
     })?;
     fs::write(dest.join(PACKAGE_FILE), text)
         .map_err(|e| io_err("library_write_failed", "无法写入本地库记录", e))?;
+    forget_dismissed(library_root, &record.id)?;
     Ok(record)
 }
 
@@ -445,17 +515,9 @@ pub fn delete_mod(library_root: &Path, profiles_dir: &Path, id: &str) -> AppResu
         return Err(AppError::new("library_mod_missing", "本地库中没有这个模组")
             .with_detail(id.to_string()));
     }
+    remember_dismissed(library_root, id)?;
+    remove_id_from_profiles(profiles_dir, id)?;
     remove_dir_if_exists(&dir)?;
-    if profiles_dir.exists() {
-        let profiles = crate::storage::profiles_store::list_profiles_from(profiles_dir)?;
-        for mut profile in profiles {
-            let before = profile.mod_ids.len();
-            profile.mod_ids.retain(|item| item != id);
-            if profile.mod_ids.len() != before {
-                crate::storage::profiles_store::save_profile_to(profiles_dir, &profile)?;
-            }
-        }
-    }
     Ok(())
 }
 
@@ -856,27 +918,55 @@ pub fn migrate_installed_mods(
     profiles_dir: &Path,
     now_iso: &str,
 ) -> AppResult<()> {
-    let existing = list_mods(library_root, LibraryQuery::default())?;
-    if !existing.is_empty() || !mods_path.is_dir() {
+    if !mods_path.is_dir() {
         crate::storage::profiles_store::ensure_default_profile(profiles_dir, Vec::new(), now_iso)?;
         return Ok(());
     }
+    let existing_ids: HashSet<String> = list_mods(library_root, LibraryQuery::default())?
+        .into_iter()
+        .map(|m| m.id)
+        .collect();
+    let dismissed = read_dismissed(library_root)?;
     let players = player_mod_dirs(mods_path).unwrap_or_default();
-    let mut enabled_ids = Vec::new();
+    let mut imported_enabled = Vec::new();
     for (id, path, enabled) in &players {
+        if existing_ids.contains(id) || is_dismissed(&dismissed, id) {
+            continue;
+        }
         if is_smapi_bundled(
             path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
             Some(id),
         ) {
             continue;
         }
-        let imported = import_mod_dir(library_root, path, ImportMeta::default())?;
-        seed_userdata_config(userdata_root, &imported.id, path)?;
+        let Ok(imported) = import_mod_dir(library_root, path, ImportMeta::default()) else {
+            continue;
+        };
+        let _ = seed_userdata_config(userdata_root, &imported.id, path);
         if *enabled {
-            enabled_ids.push(imported.id);
+            imported_enabled.push(imported.id);
         }
     }
-    crate::storage::profiles_store::ensure_default_profile(profiles_dir, enabled_ids, now_iso)?;
+    crate::storage::profiles_store::ensure_default_profile(
+        profiles_dir,
+        imported_enabled.clone(),
+        now_iso,
+    )?;
+    if let Ok(mut profile) =
+        crate::storage::profiles_store::load_profile_by_id_from(profiles_dir, "default")
+    {
+        let mut changed = false;
+        for id in imported_enabled {
+            if !profile.mod_ids.iter().any(|item| item == &id) {
+                profile.mod_ids.push(id);
+                changed = true;
+            }
+        }
+        if changed {
+            profile.updated_at = now_iso.to_string();
+            crate::storage::profiles_store::save_profile_to(profiles_dir, &profile)?;
+        }
+    }
     let known: HashSet<String> = list_mods(library_root, LibraryQuery::default())?
         .into_iter()
         .map(|m| m.id)
@@ -888,6 +978,39 @@ pub fn migrate_installed_mods(
         }
     }
     Ok(())
+}
+
+/// Manifest-backed entries used to ask SMAPI which library packages can update.
+pub fn entries_for_updates(library_root: &Path) -> AppResult<Vec<scan::ModEntry>> {
+    let mods = list_mods(library_root, LibraryQuery::default())?;
+    let mut entries = Vec::new();
+    for item in mods {
+        let manifest_path = mod_dir(library_root, &item.id).join("manifest.json");
+        let Ok(bytes) = fs::read(&manifest_path) else {
+            continue;
+        };
+        let Ok(manifest) = parse_manifest(&bytes) else {
+            continue;
+        };
+        entries.push(scan::ModEntry {
+            id: item.id,
+            name: item.name,
+            author: item.author,
+            version: item.version,
+            description: item.description,
+            folder_path: item.folder_name,
+            enabled: true,
+            minimum_api_version: manifest.minimum_api_version,
+            update_keys: manifest.update_keys,
+            dependencies: manifest
+                .dependencies
+                .iter()
+                .map(scan::ModDependency::from)
+                .collect(),
+            status: "ok".into(),
+        });
+    }
+    Ok(entries)
 }
 
 pub fn profile_state(
@@ -1372,5 +1495,115 @@ mod tests {
         assert_eq!(nexus_library_status(&mods, 99, "1.0.0"), "missing");
         assert_eq!(nexus_library_status(&mods, 42, "1.0.0"), "owned");
         assert_eq!(nexus_library_status(&mods, 42, "1.2.0"), "update");
+    }
+
+    #[test]
+    fn migrate_imports_game_mods_when_library_already_has_entries() {
+        let root = temp_dir("svmm-adopt");
+        let library = root.join("library");
+        let userdata = root.join("userdata");
+        let profiles = root.join("profiles");
+        let already = root.join("Already");
+        write_mod(&already, "1.0.0", None);
+        import_mod_dir(&library, &already, ImportMeta::default()).unwrap();
+        crate::storage::profiles_store::ensure_default_profile(
+            &profiles,
+            vec!["Ada.Demo".into()],
+            "t0",
+        )
+        .unwrap();
+
+        let mods = root.join("Mods");
+        let installed = mods.join("Extra");
+        fs::create_dir_all(&installed).unwrap();
+        fs::write(
+            installed.join("manifest.json"),
+            r#"{
+  "Name": "Extra",
+  "Author": "Bea",
+  "Version": "3.0.0",
+  "Description": "x",
+  "UniqueID": "Bea.Extra"
+}"#,
+        )
+        .unwrap();
+        fs::write(installed.join("mod.dll"), b"x").unwrap();
+
+        migrate_installed_mods(&mods, &library, &userdata, &profiles, "t1").unwrap();
+        let ids: Vec<String> = list_mods(&library, LibraryQuery::default())
+            .unwrap()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        assert!(ids.iter().any(|id| id == "Ada.Demo"));
+        assert!(ids.iter().any(|id| id == "Bea.Extra"));
+        let profile =
+            crate::storage::profiles_store::load_profile_by_id_from(&profiles, "default").unwrap();
+        assert!(profile.mod_ids.iter().any(|id| id == "Bea.Extra"));
+        assert!(installed.is_dir());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn delete_drops_profile_membership_and_does_not_come_back() {
+        let root = temp_dir("svmm-del");
+        let library = root.join("library");
+        let userdata = root.join("userdata");
+        let profiles = root.join("profiles");
+        let src = root.join("Demo");
+        write_mod(&src, "1.0.0", None);
+        import_mod_dir(&library, &src, ImportMeta::default()).unwrap();
+
+        crate::storage::profiles_store::ensure_default_profile(
+            &profiles,
+            vec!["ada.demo".into()],
+            "t0",
+        )
+        .unwrap();
+        crate::storage::profiles_store::save_profile_to(
+            &profiles,
+            &Profile {
+                id: "other".into(),
+                name: "其他".into(),
+                created_at: "t0".into(),
+                updated_at: "t0".into(),
+                mod_ids: vec!["Ada.Demo".into(), "Keep.Me".into()],
+            },
+        )
+        .unwrap();
+
+        let mods = root.join("Mods");
+        let deployed = mods.join("Demo");
+        fs::create_dir_all(&deployed).unwrap();
+        fs::copy(src.join("manifest.json"), deployed.join("manifest.json")).unwrap();
+        fs::write(deployed.join("mod.dll"), b"v-bytes").unwrap();
+
+        delete_mod(&library, &profiles, "Ada.Demo").unwrap();
+        assert!(list_mods(&library, LibraryQuery::default())
+            .unwrap()
+            .is_empty());
+
+        let default_profile =
+            crate::storage::profiles_store::load_profile_by_id_from(&profiles, "default").unwrap();
+        assert!(!default_profile
+            .mod_ids
+            .iter()
+            .any(|id| id.eq_ignore_ascii_case("Ada.Demo")));
+        let other =
+            crate::storage::profiles_store::load_profile_by_id_from(&profiles, "other").unwrap();
+        assert_eq!(other.mod_ids, vec!["Keep.Me".to_string()]);
+
+        migrate_installed_mods(&mods, &library, &userdata, &profiles, "t1").unwrap();
+        assert!(list_mods(&library, LibraryQuery::default())
+            .unwrap()
+            .is_empty());
+        let default_again =
+            crate::storage::profiles_store::load_profile_by_id_from(&profiles, "default").unwrap();
+        assert!(!default_again
+            .mod_ids
+            .iter()
+            .any(|id| id.eq_ignore_ascii_case("Ada.Demo")));
+        assert!(deployed.is_dir());
+        let _ = fs::remove_dir_all(&root);
     }
 }

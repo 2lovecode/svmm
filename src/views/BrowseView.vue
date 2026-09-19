@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import LayerGuide from "../components/LayerGuide.vue";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import * as api from "../api/tauri";
@@ -11,16 +11,17 @@ import {
   type NexusCategory,
 } from "../types/mod";
 
-const router = useRouter();
 const categories = ref<NexusCategory[]>([]);
 const result = ref<NexusBrowsePage | null>(null);
 const category = ref("");
 const keyword = ref("");
 const modId = ref("");
 const addingId = ref<number | null>(null);
+const notice = ref<string | null>(null);
 const currentPage = ref(1);
 const loading = ref(false);
 const error = ref<string | null>(null);
+let unlistenNxm: UnlistenFn | null = null;
 
 const pageCount = computed(() => {
   const total = result.value?.total ?? 0;
@@ -44,6 +45,25 @@ onMounted(async () => {
     error.value = formatAppError(e);
   }
   await load(1);
+  try {
+    unlistenNxm = await listen<{ ok: boolean; message?: string }>(
+      "nxm-install-result",
+      async (event) => {
+        if (event.payload.ok) {
+          notice.value = "已入库到本地库";
+          await load(currentPage.value);
+        } else if (event.payload.message) {
+          error.value = event.payload.message;
+        }
+      },
+    );
+  } catch {
+    /* browser preview has no Tauri events */
+  }
+});
+
+onUnmounted(() => {
+  unlistenNxm?.();
 });
 
 async function load(page: number) {
@@ -89,8 +109,19 @@ function statusLabel(status: string): string {
 async function addToLibrary(mod: NexusCatalogMod) {
   addingId.value = mod.modId;
   error.value = null;
+  notice.value = null;
   try {
-    await api.libraryAddFromNexus(mod.modId, mod.category || null);
+    const imported = await api.libraryAddFromNexus(mod.modId, mod.category || null);
+    if (imported.browserUrl) {
+      try {
+        await openUrl(imported.browserUrl);
+      } catch {
+        window.open(imported.browserUrl, "_blank", "noopener");
+      }
+      notice.value = "已打开 Nexus。在网页上点下载后，会自动入库到本地库。";
+      return;
+    }
+    notice.value = "已入库";
     await load(currentPage.value);
   } catch (e) {
     error.value = formatAppError(e);
@@ -105,9 +136,8 @@ function formatCount(value: number): string {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page-view">
     <header class="settings-header">
-      <button type="button" class="btn btn-ghost" @click="router.push('/')">← 返回</button>
       <h1>Nexus 模组</h1>
     </header>
     <main class="settings-body browse-body">
@@ -152,6 +182,7 @@ function formatCount(value: number): string {
           </button>
         </div>
       </div>
+      <p v-if="notice" class="feedback ok">{{ notice }}</p>
       <p v-if="error" class="feedback err">{{ error }}</p>
       <p v-else-if="loading && !result" class="hint">正在加载…</p>
       <ul v-else class="catalog-list">

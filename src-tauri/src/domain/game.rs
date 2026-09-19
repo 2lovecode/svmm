@@ -122,6 +122,7 @@ fn candidate_game_dirs_from(
 }
 
 /// Steam (user Library) then GOG (`/Applications/*.app`).
+#[cfg(any(test, target_os = "macos"))]
 fn candidate_game_dirs_macos(home: Option<&Path>) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 

@@ -148,10 +148,17 @@ struct DownloadLinkItem {
     uri: String,
 }
 
+/// Page a non-premium user must open so Nexus can send an `nxm://` link back.
+pub fn manual_download_page(mod_id: u32, file_id: u64) -> String {
+    format!(
+        "https://www.nexusmods.com/stardewvalley/mods/{mod_id}?tab=files&file_id={file_id}&nmm=1"
+    )
+}
+
 fn premium_required_error() -> AppError {
     AppError::new(
         "nexus_premium_required",
-        "需要 Nexus Premium 才能在应用内更新",
+        "需要 Nexus Premium 才能在应用内直接下载",
     )
 }
 
@@ -220,6 +227,22 @@ pub fn fetch_download_link(nxm: &NxmUrl) -> AppResult<String> {
         .next()
         .map(|l| l.uri)
         .ok_or_else(|| AppError::new("nexus_download_empty", "Nexus 未返回可用下载地址"))
+}
+
+/// Premium users get a CDN link. Everyone else gets the Nexus file page that calls back via `nxm://`.
+pub enum NexusAcquire {
+    Direct(String),
+    ManualPage(String),
+}
+
+pub fn acquire_nexus_file(mod_id: u32, file_id: u64) -> AppResult<NexusAcquire> {
+    match fetch_premium_download_link(mod_id, file_id) {
+        Ok(url) => Ok(NexusAcquire::Direct(url)),
+        Err(err) if err.code == "nexus_premium_required" => {
+            Ok(NexusAcquire::ManualPage(manual_download_page(mod_id, file_id)))
+        }
+        Err(err) => Err(err),
+    }
 }
 
 /// Premium quick-download link (no NXM key/expires). Maps 403 → nexus_premium_required.
@@ -375,9 +398,15 @@ pub fn handle_nxm_url(
     let nxm = parse_nxm_url(url)?;
     let cdn = fetch_download_link(&nxm)?;
     let zip_path = download_url_to_temp_zip(&cdn)?;
-    let result = crate::domain::library::import_zip(
-        &zip_path,
+    let mods_path = crate::storage::settings::load_settings()
+        .ok()
+        .and_then(|settings| crate::domain::game::resolve_paths(&settings).ok())
+        .map(|paths| paths.mods_path);
+    let result = crate::domain::library::replace_from_zip(
         library_root,
+        &crate::storage::paths::userdata_dir(),
+        mods_path.as_deref(),
+        &zip_path,
         crate::domain::library::ImportMeta {
             nexus_mod_id: u32::try_from(nxm.mod_id).ok(),
             nexus_file_id: Some(nxm.file_id),
@@ -408,30 +437,40 @@ struct FilesResponse {
 struct NexusFileMeta {
     file_id: u64,
     #[serde(default)]
-    name: String,
+    name: Option<String>,
     #[serde(default)]
-    version: String,
+    version: Option<String>,
     #[serde(default)]
-    category_id: i64,
+    category_id: Option<i64>,
     #[serde(default)]
-    category_name: String,
+    category_name: Option<String>,
     #[serde(default)]
-    uploaded_timestamp: i64,
+    uploaded_timestamp: Option<i64>,
 }
 
 fn is_main_file(f: &NexusFileMeta) -> bool {
-    f.category_id == 1 || f.category_name.eq_ignore_ascii_case("MAIN")
+    f.category_id == Some(1)
+        || f.category_name
+            .as_deref()
+            .is_some_and(|name| name.eq_ignore_ascii_case("MAIN"))
+}
+
+fn parse_files_response(files_json: &str) -> AppResult<FilesResponse> {
+    serde_json::from_str(files_json).map_err(|err| {
+        AppError::new("nexus_files_parse_failed", "无法解析 Nexus 文件列表")
+            .with_detail(err.to_string())
+    })
 }
 
 /// Pick newest MAIN file from a Nexus files.json payload (pure helper for tests).
+#[cfg(test)]
 pub fn pick_newest_main_file_id(files_json: &str) -> AppResult<u64> {
-    let parsed: FilesResponse = serde_json::from_str(files_json)
-        .map_err(|_| AppError::new("nexus_files_parse_failed", "无法解析 Nexus 文件列表"))?;
+    let parsed = parse_files_response(files_json)?;
     parsed
         .files
         .into_iter()
         .filter(is_main_file)
-        .max_by_key(|f| f.uploaded_timestamp)
+        .max_by_key(|f| f.uploaded_timestamp.unwrap_or(0))
         .map(|f| f.file_id)
         .ok_or_else(|| AppError::new("nexus_no_main_file", "未找到可用的主文件"))
 }
@@ -467,18 +506,17 @@ fn fetch_files_body(mod_id: u32) -> AppResult<String> {
 }
 
 pub fn parse_file_list(files_json: &str) -> AppResult<Vec<NexusFileInfo>> {
-    let parsed: FilesResponse = serde_json::from_str(files_json)
-        .map_err(|_| AppError::new("nexus_files_parse_failed", "无法解析 Nexus 文件列表"))?;
+    let parsed = parse_files_response(files_json)?;
     let mut files: Vec<NexusFileInfo> = parsed
         .files
         .into_iter()
         .map(|f| NexusFileInfo {
             is_main: is_main_file(&f),
             file_id: f.file_id,
-            name: f.name,
-            version: f.version,
-            category_name: f.category_name,
-            uploaded_timestamp: f.uploaded_timestamp,
+            name: f.name.unwrap_or_default(),
+            version: f.version.unwrap_or_default(),
+            category_name: f.category_name.unwrap_or_default(),
+            uploaded_timestamp: f.uploaded_timestamp.unwrap_or(0),
         })
         .collect();
     files.sort_by(|a, b| b.uploaded_timestamp.cmp(&a.uploaded_timestamp));
@@ -644,6 +682,14 @@ mod tests {
     }
 
     #[test]
+    fn manual_download_page_asks_nexus_to_call_back() {
+        assert_eq!(
+            manual_download_page(2400, 99),
+            "https://www.nexusmods.com/stardewvalley/mods/2400?tab=files&file_id=99&nmm=1"
+        );
+    }
+
+    #[test]
     fn parse_nxm_invalid_shape() {
         let err = parse_nxm_url("nxm://stardewvalley/mods/1").unwrap_err();
         assert_eq!(err.code, "nxm_invalid");
@@ -673,6 +719,34 @@ mod tests {
             {"file_id": 30, "category_id": 3, "category_name": "OPTIONAL", "uploaded_timestamp": 999}
           ]
         }"#;
+        assert_eq!(pick_newest_main_file_id(json).unwrap(), 20);
+    }
+
+    #[test]
+    fn parse_file_list_accepts_null_category_name() {
+        let json = r#"{
+          "files": [
+            {
+              "id": [1, 2],
+              "file_id": 10,
+              "name": "Old",
+              "version": "1.0",
+              "category_id": 1,
+              "category_name": null,
+              "changelog_html": null,
+              "uploaded_timestamp": 100
+            },
+            {
+              "file_id": 20,
+              "category_id": null,
+              "category_name": "MAIN",
+              "uploaded_timestamp": 200
+            }
+          ]
+        }"#;
+        let files = parse_file_list(json).unwrap();
+        assert_eq!(files.len(), 2);
+        assert!(files.iter().all(|f| f.is_main));
         assert_eq!(pick_newest_main_file_id(json).unwrap(), 20);
     }
 

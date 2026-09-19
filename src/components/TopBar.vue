@@ -1,92 +1,12 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
-import { useModsStore } from "../stores/mods";
-import { useLibraryStore } from "../stores/library";
-import { useProfilesStore } from "../stores/profiles";
-import { useSettingsStore } from "../stores/settings";
+import { useRoute } from "vue-router";
 
-defineProps<{
-  busy?: boolean;
-}>();
-
-const router = useRouter();
-const mods = useModsStore();
-const library = useLibraryStore();
-const profiles = useProfilesStore();
-const settings = useSettingsStore();
-
-const selectValue = ref("");
-
-onMounted(async () => {
-  try {
-    await settings.load();
-  } catch {
-    /* optional */
-  }
-  try {
-    await mods.refreshSmapiStatus();
-  } catch {
-    /* optional */
-  }
-  try {
-    await profiles.load(settings.settings.lastProfileId);
-    selectValue.value = profiles.selectedId ?? "";
-  } catch {
-    /* profiles may fail before paths are set */
-  }
-});
-
-watch(
-  () => profiles.selectedId,
-  (id) => {
-    if (id) selectValue.value = id;
-  },
-);
-
-async function onRefresh() {
-  try {
-    await library.loadHome();
-  } catch {
-    /* home may be unavailable before paths exist */
-  }
-  try {
-    await mods.refresh();
-  } catch {
-    /* error surfaced in store */
-  }
-}
-
-async function onLaunch() {
-  try {
-    await mods.launch();
-  } catch {
-    /* error surfaced in store */
-  }
-}
-
-async function onProfileChange(event: Event) {
-  const id = (event.target as HTMLSelectElement).value;
-  if (!id || id === profiles.selectedId) {
-    selectValue.value = profiles.selectedId ?? "";
-    return;
-  }
-  const previous = profiles.selectedId ?? "";
-  selectValue.value = id;
-  try {
-    await profiles.apply(id);
-    await settings.load();
-    await library.loadHome();
-    await mods.refresh();
-  } catch {
-    selectValue.value = previous;
-  }
-}
+const route = useRoute();
 </script>
 
 <template>
   <header class="topbar">
-    <div class="brand">
+    <router-link class="brand" to="/" title="首页" aria-label="首页">
       <svg class="junimo" viewBox="0 0 8 8" aria-hidden="true">
         <g shape-rendering="crispEdges">
           <rect x="2" y="0" width="4" height="1" fill="#4c6840" />
@@ -107,53 +27,45 @@ async function onProfileChange(event: Event) {
         <strong>SVMM</strong>
         <span class="brand-sub">星露谷模组管理</span>
       </div>
-    </div>
-    <nav class="actions">
-      <label class="profile-select-wrap">
-        <span class="sr-only">配置方案</span>
-        <select
-          class="profile-select"
-          :value="selectValue"
-          :disabled="busy || profiles.loading || profiles.applying || mods.loading"
-          @change="onProfileChange"
+    </router-link>
+    <div class="topbar-end">
+      <nav class="actions">
+        <router-link
+          class="btn btn-ghost"
+          :class="{ 'is-current': route.path.startsWith('/browse') }"
+          to="/browse"
         >
-          <option v-if="profiles.profiles.length === 0" value="" disabled>
-            暂无方案
-          </option>
-          <option v-for="p in profiles.profiles" :key="p.id" :value="p.id">
-            {{ p.name }}
-          </option>
-        </select>
-      </label>
-      <button type="button" class="btn btn-ghost" @click="router.push('/browse')">
-        浏览
-      </button>
-      <button type="button" class="btn btn-ghost" @click="router.push('/library')">
-        本地库
-      </button>
-      <button type="button" class="btn btn-ghost" @click="router.push('/profiles')">
-        方案
-      </button>
-      <button
-        type="button"
-        class="btn"
-        :disabled="busy || mods.loading"
-        @click="onRefresh"
+          浏览
+        </router-link>
+        <router-link
+          class="btn btn-ghost"
+          :class="{ 'is-current': route.path.startsWith('/library') }"
+          to="/library"
+        >
+          本地库
+        </router-link>
+        <router-link
+          class="btn btn-ghost"
+          :class="{ 'is-current': route.path.startsWith('/profiles') }"
+          to="/profiles"
+        >
+          方案
+        </router-link>
+      </nav>
+      <router-link
+        class="btn btn-ghost btn-icon"
+        :class="{ 'is-current': route.path.startsWith('/settings') }"
+        to="/settings"
+        aria-label="设置"
+        title="设置"
       >
-        {{ mods.loading ? "刷新中…" : "刷新" }}
-      </button>
-      <button
-        type="button"
-        class="btn btn-primary"
-        :disabled="busy || mods.launching || mods.smapiInstalled !== true"
-        :title="mods.smapiInstalled === false ? '请先在首页安装 SMAPI' : undefined"
-        @click="onLaunch"
-      >
-        {{ mods.launching ? "启动中…" : "启动" }}
-      </button>
-      <button type="button" class="btn btn-ghost" @click="router.push('/settings')">
-        设置
-      </button>
-    </nav>
+        <svg class="icon-gear" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M19.4 13.5a7.7 7.7 0 0 0 .1-1.5 7.7 7.7 0 0 0-.1-1.5l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-2.6-1.5L13.8 2h-3.6l-.6 2.9a7.4 7.4 0 0 0-2.6 1.5l-2.5-1-2 3.5 2.1 1.6a7.7 7.7 0 0 0-.1 1.5 7.7 7.7 0 0 0 .1 1.5l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 2.6 1.5l.6 2.9h3.6l.6-2.9a7.4 7.4 0 0 0 2.6-1.5l2.5 1 2-3.5-2.1-1.6ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"
+          />
+        </svg>
+      </router-link>
+    </div>
   </header>
 </template>
